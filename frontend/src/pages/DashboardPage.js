@@ -136,6 +136,8 @@ export default function DashboardPage() {
                 </Button>
               </Link>
 
+              <NotificationBell />
+
               <button
                 onClick={toggleTheme}
                 className="p-2 rounded-full hover:bg-muted transition-colors"
