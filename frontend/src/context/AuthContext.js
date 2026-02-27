@@ -4,6 +4,11 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const AuthContext = createContext(null);
 
+// Helper to get stored token from localStorage
+const getStoredToken = () => localStorage.getItem('odapto_session_token');
+const setStoredToken = (token) => localStorage.setItem('odapto_session_token', token);
+const clearStoredToken = () => localStorage.removeItem('odapto_session_token');
+
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
@@ -16,6 +21,14 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const getAuthHeaders = useCallback(() => {
+    const token = getStoredToken();
+    if (token) {
+      return { 'Authorization': `Bearer ${token}` };
+    }
+    return {};
+  }, []);
+
   const checkAuth = useCallback(async () => {
     // CRITICAL: If returning from OAuth callback, skip the /me check.
     // AuthCallback will exchange the session_id and establish the session first.
@@ -26,21 +39,24 @@ export const AuthProvider = ({ children }) => {
 
     try {
       const response = await fetch(`${API}/auth/me`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers: getAuthHeaders()
       });
       if (response.ok) {
         const userData = await response.json();
         setUser(userData);
       } else {
         setUser(null);
+        clearStoredToken();
       }
     } catch (error) {
       console.error('Auth check failed:', error);
       setUser(null);
+      clearStoredToken();
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [getAuthHeaders]);
 
   useEffect(() => {
     checkAuth();
