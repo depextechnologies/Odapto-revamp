@@ -1128,6 +1128,117 @@ async def move_card(card_id: str, request: Request, user: User = Depends(get_cur
     
     return {"message": "Card moved"}
 
+# Card member invitation
+@api_router.post("/cards/{card_id}/invite")
+async def invite_card_member(card_id: str, data: CardInviteRequest, user: User = Depends(get_current_user)):
+    """Invite a user to be assigned to a card. If not registered, creates a pending invite."""
+    card = await db.cards.find_one({"card_id": card_id}, {"_id": 0})
+    if not card:
+        raise HTTPException(status_code=404, detail="Card not found")
+    
+    board = await db.boards.find_one({"board_id": card["board_id"]}, {"_id": 0})
+    workspace = await db.workspaces.find_one(
+        {"workspace_id": board["workspace_id"], "members.user_id": user.user_id},
+        {"_id": 0}
+    )
+    if not workspace:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Find the user to invite
+    invite_user = await db.users.find_one({"email": data.email}, {"_id": 0, "password_hash": 0})
+    
+    if invite_user:
+        # User exists - add directly to card
+        # Check if already assigned
+        if any(m.get("user_id") == invite_user["user_id"] for m in card.get("assigned_members", [])):
+            raise HTTPException(status_code=400, detail="User is already assigned to this card")
+        
+        new_member = {
+            "user_id": invite_user["user_id"],
+            "name": invite_user["name"],
+            "email": invite_user["email"],
+            "picture": invite_user.get("picture")
+        }
+        await db.cards.update_one(
+            {"card_id": card_id},
+            {"$push": {"assigned_members": new_member}}
+        )
+        
+        # Create notification for the invited user
+        await create_notification(
+            user_id=invite_user["user_id"],
+            notification_type="card_assignment",
+            title="Card Assignment",
+            message=f"{user.name} assigned you to '{card['title']}'",
+            from_user=user,
+            board_id=board["board_id"],
+            card_id=card_id
+        )
+        
+        # Broadcast to WebSocket
+        await manager.broadcast(board["board_id"], {
+            "type": "member_assigned",
+            "card_id": card_id,
+            "member": new_member
+        })
+        
+        return {"message": f"Added {invite_user['name']} to the card", "member": new_member, "pending": False}
+    else:
+        # User doesn't exist - create pending invite
+        invite_id = f"invite_{uuid.uuid4().hex[:12]}"
+        pending_invite = {
+            "invite_id": invite_id,
+            "email": data.email,
+            "invite_type": "card",
+            "target_id": card_id,
+            "board_id": board["board_id"],
+            "board_name": board["name"],
+            "card_title": card["title"],
+            "invited_by": user.user_id,
+            "invited_by_name": user.name,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.pending_invites.insert_one(pending_invite)
+        
+        # In a real app, send email here
+        # For now, just return success
+        return {
+            "message": f"Invitation sent to {data.email}. They will be added once they sign up.",
+            "pending": True,
+            "email": data.email
+        }
+
+@api_router.delete("/cards/{card_id}/members/{member_user_id}")
+async def remove_card_member(card_id: str, member_user_id: str, user: User = Depends(get_current_user)):
+    """Remove an assigned member from a card"""
+    card = await db.cards.find_one({"card_id": card_id}, {"_id": 0})
+    if not card:
+        raise HTTPException(status_code=404, detail="Card not found")
+    
+    board = await db.boards.find_one({"board_id": card["board_id"]}, {"_id": 0})
+    workspace = await db.workspaces.find_one(
+        {"workspace_id": board["workspace_id"], "members.user_id": user.user_id},
+        {"_id": 0}
+    )
+    if not workspace:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    await db.cards.update_one(
+        {"card_id": card_id},
+        {"$pull": {"assigned_members": {"user_id": member_user_id}}}
+    )
+    
+    return {"message": "Member removed from card"}
+
+@api_router.get("/cards/{card_id}/members")
+async def get_card_members(card_id: str, user: User = Depends(get_current_user)):
+    """Get all assigned members of a card"""
+    card = await db.cards.find_one({"card_id": card_id}, {"_id": 0})
+    if not card:
+        raise HTTPException(status_code=404, detail="Card not found")
+    
+    return card.get("assigned_members", [])
+
 # Card comments
 @api_router.post("/cards/{card_id}/comments")
 async def add_comment(card_id: str, data: CommentCreate, user: User = Depends(get_current_user)):
