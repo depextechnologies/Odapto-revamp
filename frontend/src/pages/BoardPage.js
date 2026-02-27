@@ -93,12 +93,7 @@ export default function BoardPage() {
 
       // Update in backend
       for (const list of updatedLists) {
-        await fetch(`${API}/lists/${list.list_id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ position: list.position })
-        });
+        await apiPatch(`/lists/${list.list_id}`, { position: list.position });
       }
       return;
     }
