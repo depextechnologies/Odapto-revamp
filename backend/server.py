@@ -400,7 +400,8 @@ async def process_oauth_session(request: Request, response: Response):
         "email": oauth_data["email"],
         "name": oauth_data["name"],
         "role": role,
-        "picture": oauth_data.get("picture")
+        "picture": oauth_data.get("picture"),
+        "session_token": session_token
     }
 
 @api_router.get("/auth/me")
