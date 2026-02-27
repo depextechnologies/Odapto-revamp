@@ -28,23 +28,23 @@ class OdaptoAPITester:
             print(f"❌ {name} - FAILED: {details}")
 
     def make_request(self, method, endpoint, data=None, expected_status=None):
-        """Make HTTP request with proper headers"""
+        """Make HTTP request with proper headers and cookies"""
         url = f"{self.base_url}/{endpoint}"
         headers = {'Content-Type': 'application/json'}
         
-        # Add session token if available
+        # Add session token if available (for Authorization header)
         if self.session_token:
             headers['Authorization'] = f'Bearer {self.session_token}'
 
         try:
             if method == 'GET':
-                response = requests.get(url, headers=headers)
+                response = self.session.get(url, headers=headers)
             elif method == 'POST':
-                response = requests.post(url, json=data, headers=headers)
+                response = self.session.post(url, json=data, headers=headers)
             elif method == 'PATCH':
-                response = requests.patch(url, json=data, headers=headers)
+                response = self.session.patch(url, json=data, headers=headers)
             elif method == 'DELETE':
-                response = requests.delete(url, headers=headers)
+                response = self.session.delete(url, headers=headers)
             
             # Check expected status
             if expected_status and response.status_code != expected_status:
