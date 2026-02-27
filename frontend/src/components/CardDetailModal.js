@@ -9,6 +9,7 @@ import { Calendar } from '../components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
+import { apiPatch, apiPost, apiDelete } from '../utils/api';
 import { 
   X, 
   Calendar as CalendarIcon, 
@@ -21,8 +22,6 @@ import {
   Plus,
   Send
 } from 'lucide-react';
-
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const LABEL_OPTIONS = [
   { value: 'red', color: 'bg-red-500', name: 'Red' },
