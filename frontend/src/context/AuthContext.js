@@ -156,6 +156,7 @@ export const AuthProvider = ({ children }) => {
     processOAuthCallback,
     logout,
     checkAuth,
+    getAuthHeaders,
     isAuthenticated: !!user,
     isAdmin: user?.role === 'admin',
     isPrivileged: user?.role === 'admin' || user?.role === 'privileged'
