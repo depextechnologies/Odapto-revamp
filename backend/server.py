@@ -338,6 +338,41 @@ async def register(data: UserCreate, response: Response):
         max_age=7*24*60*60
     )
     
+    # Process pending invites for this email
+    pending_invites = await db.pending_invites.find({"email": data.email}).to_list(100)
+    for invite in pending_invites:
+        if invite["invite_type"] == "card":
+            # Add user to card
+            new_member = {
+                "user_id": user_id,
+                "name": data.name,
+                "email": data.email,
+                "picture": None
+            }
+            await db.cards.update_one(
+                {"card_id": invite["target_id"]},
+                {"$push": {"assigned_members": new_member}}
+            )
+            # Create notification
+            notif_doc = {
+                "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+                "user_id": user_id,
+                "type": "card_assignment",
+                "title": "You've been added to a card",
+                "message": f"{invite['invited_by_name']} added you to '{invite.get('card_title', 'a card')}'",
+                "board_id": invite["board_id"],
+                "card_id": invite["target_id"],
+                "from_user_id": invite["invited_by"],
+                "from_user_name": invite["invited_by_name"],
+                "read": False,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            await db.notifications.insert_one(notif_doc)
+    
+    # Delete processed invites
+    if pending_invites:
+        await db.pending_invites.delete_many({"email": data.email})
+    
     return {"user_id": user_id, "email": data.email, "name": data.name, "role": role, "session_token": session_token}
 
 @api_router.post("/auth/login")
