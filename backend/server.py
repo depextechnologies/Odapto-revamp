@@ -88,7 +88,9 @@ class Board(BaseModel):
     workspace_id: str
     name: str
     description: Optional[str] = None
-    background: Optional[str] = "#3A8B84"
+    background: Optional[str] = "#3A8B84"  # Can be color hex or image URL
+    background_type: str = "color"  # "color" or "image"
+    members: List[Dict[str, str]] = []  # [{user_id, role, joined_at}] - board-specific members
     is_template: bool = False
     template_name: Optional[str] = None
     template_description: Optional[str] = None
@@ -100,11 +102,31 @@ class BoardCreate(BaseModel):
     name: str
     description: Optional[str] = None
     background: Optional[str] = "#3A8B84"
+    background_type: str = "color"
 
 class BoardUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     background: Optional[str] = None
+    background_type: Optional[str] = None
+
+# Notification model
+class Notification(BaseModel):
+    notification_id: str
+    user_id: str  # recipient
+    type: str  # "board_invite", "comment", "card_update", "due_date", etc.
+    title: str
+    message: str
+    board_id: Optional[str] = None
+    card_id: Optional[str] = None
+    from_user_id: Optional[str] = None
+    from_user_name: Optional[str] = None
+    read: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class BoardInviteRequest(BaseModel):
+    email: str
+    role: str = "member"  # "member" or "viewer"
 
 class BoardList(BaseModel):
     model_config = ConfigDict(extra="ignore")
