@@ -47,9 +47,7 @@ export default function DashboardPage() {
 
   const fetchWorkspaces = async () => {
     try {
-      const response = await fetch(`${API}/workspaces`, {
-        credentials: 'include'
-      });
+      const response = await apiGet('/workspaces');
       if (response.ok) {
         const data = await response.json();
         setWorkspaces(data);
@@ -68,14 +66,9 @@ export default function DashboardPage() {
 
     setCreating(true);
     try {
-      const response = await fetch(`${API}/workspaces`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          name: newWorkspaceName,
-          description: newWorkspaceDesc || null
-        })
+      const response = await apiPost('/workspaces', {
+        name: newWorkspaceName,
+        description: newWorkspaceDesc || null
       });
 
       if (response.ok) {
