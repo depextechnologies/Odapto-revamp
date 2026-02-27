@@ -118,14 +118,9 @@ export default function BoardPage() {
 
     // Update in backend
     try {
-      await fetch(`${API}/cards/${cardId}/move`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          target_list_id: destListId,
-          position: destination.index
-        })
+      await apiPost(`/cards/${cardId}/move`, {
+        target_list_id: destListId,
+        position: destination.index
       });
     } catch (error) {
       console.error('Failed to move card:', error);
