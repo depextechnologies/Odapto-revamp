@@ -132,12 +132,7 @@ export default function BoardPage() {
     if (!newListName.trim()) return;
 
     try {
-      const response = await fetch(`${API}/boards/${boardId}/lists`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ name: newListName })
-      });
+      const response = await apiPost(`/boards/${boardId}/lists`, { name: newListName });
 
       if (response.ok) {
         const newList = await response.json();
@@ -159,12 +154,7 @@ export default function BoardPage() {
     }
 
     try {
-      await fetch(`${API}/lists/${listId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ name: editingListName })
-      });
+      await apiPatch(`/lists/${listId}`, { name: editingListName });
 
       const newLists = board.lists.map(l => 
         l.list_id === listId ? { ...l, name: editingListName } : l
@@ -181,10 +171,7 @@ export default function BoardPage() {
     if (!window.confirm('Delete this list and all its cards?')) return;
 
     try {
-      await fetch(`${API}/lists/${listId}`, {
-        method: 'DELETE',
-        credentials: 'include'
-      });
+      await apiDelete(`/lists/${listId}`);
 
       setBoard({ ...board, lists: board.lists.filter(l => l.list_id !== listId) });
       toast.success('List deleted');
@@ -198,12 +185,7 @@ export default function BoardPage() {
     if (!newCardTitle.trim()) return;
 
     try {
-      const response = await fetch(`${API}/lists/${listId}/cards`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ title: newCardTitle })
-      });
+      const response = await apiPost(`/lists/${listId}/cards`, { title: newCardTitle });
 
       if (response.ok) {
         const newCard = await response.json();
