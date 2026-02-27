@@ -50,9 +50,9 @@ export default function AdminPage() {
   const fetchData = async () => {
     try {
       const [usersRes, categoriesRes, analyticsRes] = await Promise.all([
-        fetch(`${API}/admin/users`, { credentials: 'include' }),
-        fetch(`${API}/template-categories`),
-        fetch(`${API}/admin/analytics`, { credentials: 'include' })
+        apiGet('/admin/users'),
+        fetch(`${process.env.REACT_APP_BACKEND_URL}/api/template-categories`),
+        apiGet('/admin/analytics')
       ]);
 
       if (usersRes.ok) setUsers(await usersRes.json());
@@ -68,12 +68,7 @@ export default function AdminPage() {
 
   const updateUserRole = async (userId, newRole) => {
     try {
-      const response = await fetch(`${API}/admin/users/${userId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ role: newRole })
-      });
+      const response = await apiPatch(`/admin/users/${userId}`, { role: newRole });
 
       if (response.ok) {
         setUsers(users.map(u => u.user_id === userId ? { ...u, role: newRole } : u));
@@ -91,10 +86,7 @@ export default function AdminPage() {
     if (!window.confirm('Are you sure you want to delete this user?')) return;
 
     try {
-      const response = await fetch(`${API}/admin/users/${userId}`, {
-        method: 'DELETE',
-        credentials: 'include'
-      });
+      const response = await apiDelete(`/admin/users/${userId}`);
 
       if (response.ok) {
         setUsers(users.filter(u => u.user_id !== userId));
@@ -115,14 +107,9 @@ export default function AdminPage() {
 
     setCreating(true);
     try {
-      const response = await fetch(`${API}/template-categories`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          name: newCategoryName,
-          description: newCategoryDesc || null
-        })
+      const response = await apiPost('/template-categories', {
+        name: newCategoryName,
+        description: newCategoryDesc || null
       });
 
       if (response.ok) {
@@ -147,10 +134,7 @@ export default function AdminPage() {
     if (!window.confirm('Delete this category?')) return;
 
     try {
-      const response = await fetch(`${API}/template-categories/${categoryId}`, {
-        method: 'DELETE',
-        credentials: 'include'
-      });
+      const response = await apiDelete(`/template-categories/${categoryId}`);
 
       if (response.ok) {
         setCategories(categories.filter(c => c.category_id !== categoryId));
