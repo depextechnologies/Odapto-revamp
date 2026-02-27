@@ -61,7 +61,7 @@ export default function TemplatesPage() {
 
       // Fetch workspaces if authenticated
       if (isAuthenticated) {
-        const wsRes = await fetch(`${API}/workspaces`, { credentials: 'include' });
+        const wsRes = await apiGet('/workspaces');
         if (wsRes.ok) {
           setWorkspaces(await wsRes.json());
         }
