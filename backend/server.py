@@ -1089,12 +1089,17 @@ async def update_card(card_id: str, data: CardUpdate, user: User = Depends(get_c
         raise HTTPException(status_code=403, detail="Access denied")
     
     update_data = {}
-    for k, v in data.model_dump().items():
-        if v is not None:
-            if k == "due_date" and v:
+    data_dict = data.model_dump(exclude_unset=True)
+    for k, v in data_dict.items():
+        if k == "due_date":
+            if v:
                 update_data[k] = v.isoformat() if hasattr(v, 'isoformat') else v
             else:
-                update_data[k] = v
+                update_data[k] = None  # Allow clearing due date
+        elif k == "priority":
+            update_data[k] = v  # Allow setting to None or empty string
+        elif v is not None:
+            update_data[k] = v
     
     if update_data:
         await db.cards.update_one({"card_id": card_id}, {"$set": update_data})
