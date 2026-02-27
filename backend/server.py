@@ -1438,6 +1438,44 @@ async def use_template(template_id: str, request: Request, user: User = Depends(
 
 # ============== FILE UPLOAD ==============
 
+@api_router.post("/boards/{board_id}/background")
+async def upload_board_background(board_id: str, file: UploadFile = File(...), user: User = Depends(get_current_user)):
+    """Upload a background image for a board"""
+    board = await db.boards.find_one({"board_id": board_id}, {"_id": 0})
+    if not board:
+        raise HTTPException(status_code=404, detail="Board not found")
+    
+    workspace = await db.workspaces.find_one(
+        {"workspace_id": board["workspace_id"], "members.user_id": user.user_id},
+        {"_id": 0}
+    )
+    if not workspace:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Validate file type
+    allowed_types = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
+    file_ext = Path(file.filename).suffix.lower()
+    if file_ext not in allowed_types:
+        raise HTTPException(status_code=400, detail=f"File type not allowed. Allowed: {', '.join(allowed_types)}")
+    
+    # Save file
+    file_id = f"bg_{uuid.uuid4().hex[:12]}"
+    file_path = UPLOAD_DIR / f"{file_id}{file_ext}"
+    
+    with open(file_path, "wb") as f:
+        content = await file.read()
+        f.write(content)
+    
+    background_url = f"/api/files/{file_id}{file_ext}"
+    
+    # Update board
+    await db.boards.update_one(
+        {"board_id": board_id},
+        {"$set": {"background": background_url, "background_type": "image"}}
+    )
+    
+    return {"background": background_url, "background_type": "image"}
+
 @api_router.post("/cards/{card_id}/attachments")
 async def upload_attachment(card_id: str, file: UploadFile = File(...), user: User = Depends(get_current_user)):
     card = await db.cards.find_one({"card_id": card_id}, {"_id": 0})
