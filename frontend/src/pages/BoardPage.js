@@ -55,6 +55,7 @@ export default function BoardPage() {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
+  const fileInputRef = useRef(null);
   
   const [board, setBoard] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -65,6 +66,18 @@ export default function BoardPage() {
   const [editingListId, setEditingListId] = useState(null);
   const [editingListName, setEditingListName] = useState('');
   const [selectedCard, setSelectedCard] = useState(null);
+  
+  // New state for member invitation
+  const [showInviteDialog, setShowInviteDialog] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('member');
+  const [inviting, setInviting] = useState(false);
+  const [boardMembers, setBoardMembers] = useState([]);
+  const [showMembersPopover, setShowMembersPopover] = useState(false);
+  
+  // Background customization
+  const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
+  const [uploadingBackground, setUploadingBackground] = useState(false);
 
   const fetchBoard = useCallback(async () => {
     try {
