@@ -324,7 +324,8 @@ async def login(data: UserLogin, response: Response):
         "email": user["email"],
         "name": user["name"],
         "role": user.get("role", UserRole.NORMAL),
-        "picture": user.get("picture")
+        "picture": user.get("picture"),
+        "session_token": session_token
     }
 
 # REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
