@@ -1132,6 +1132,26 @@ async def add_comment(card_id: str, data: CommentCreate, user: User = Depends(ge
         {"$push": {"comments": comment}}
     )
     
+    # Send notifications to all board members except the commenter
+    for member in board.get("members", []):
+        if member["user_id"] != user.user_id:
+            await create_notification(
+                user_id=member["user_id"],
+                notification_type="comment",
+                title="New Comment",
+                message=f"{user.name} commented on '{card['title']}': {data.content[:50]}{'...' if len(data.content) > 50 else ''}",
+                from_user=user,
+                board_id=board["board_id"],
+                card_id=card_id
+            )
+    
+    # Broadcast to WebSocket for real-time updates
+    await manager.broadcast(board["board_id"], {
+        "type": "new_comment",
+        "card_id": card_id,
+        "comment": comment
+    })
+    
     return comment
 
 # Card checklist
