@@ -823,6 +823,72 @@ export default function BoardPage() {
           onDelete={onCardDelete}
         />
       )}
+
+      {/* Invite Member Dialog */}
+      <Dialog open={showInviteDialog} onOpenChange={setShowInviteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Invite Member</DialogTitle>
+            <DialogDescription>
+              Invite someone to collaborate on this board. They will receive a notification.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={inviteMember} className="space-y-4 mt-4">
+            <div className="space-y-2">
+              <Label htmlFor="invite-email">Email Address</Label>
+              <Input
+                id="invite-email"
+                type="email"
+                placeholder="colleague@example.com"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                required
+                data-testid="invite-email-input"
+              />
+              <p className="text-xs text-muted-foreground">
+                The user must already have an Odapto account
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>Role</Label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={inviteRole === 'member' ? 'default' : 'outline'}
+                  onClick={() => setInviteRole('member')}
+                  className={inviteRole === 'member' ? 'bg-odapto-teal hover:bg-odapto-teal-hover text-white' : ''}
+                >
+                  Member
+                </Button>
+                <Button
+                  type="button"
+                  variant={inviteRole === 'viewer' ? 'default' : 'outline'}
+                  onClick={() => setInviteRole('viewer')}
+                  className={inviteRole === 'viewer' ? 'bg-odapto-teal hover:bg-odapto-teal-hover text-white' : ''}
+                >
+                  Viewer
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {inviteRole === 'member' ? 'Can edit cards and lists' : 'Can only view the board'}
+              </p>
+            </div>
+            <div className="flex justify-end gap-3">
+              <Button type="button" variant="outline" onClick={() => setShowInviteDialog(false)}>
+                Cancel
+              </Button>
+              <Button 
+                type="submit" 
+                className="bg-odapto-orange hover:bg-odapto-orange-hover text-white"
+                disabled={inviting}
+                data-testid="send-invite-btn"
+              >
+                {inviting ? 'Sending...' : 'Send Invite'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
