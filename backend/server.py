@@ -720,6 +720,169 @@ async def delete_board(board_id: str, user: User = Depends(get_current_user)):
     
     return {"message": "Board deleted"}
 
+# ============== BOARD MEMBER INVITATION ==============
+
+@api_router.post("/boards/{board_id}/invite")
+async def invite_board_member(board_id: str, data: BoardInviteRequest, user: User = Depends(get_current_user)):
+    """Invite a user to collaborate on a board"""
+    board = await db.boards.find_one({"board_id": board_id}, {"_id": 0})
+    if not board:
+        raise HTTPException(status_code=404, detail="Board not found")
+    
+    # Check if user is board owner or has invite permission
+    is_owner = board.get("created_by") == user.user_id
+    is_board_member = any(m.get("user_id") == user.user_id and m.get("role") in ["owner", "admin"] for m in board.get("members", []))
+    
+    if not is_owner and not is_board_member:
+        raise HTTPException(status_code=403, detail="Only board owners can invite members")
+    
+    # Find the user to invite
+    invite_user = await db.users.find_one({"email": data.email}, {"_id": 0, "password_hash": 0})
+    if not invite_user:
+        raise HTTPException(status_code=404, detail="User not found. They need to register first.")
+    
+    # Check if already a member
+    if any(m.get("user_id") == invite_user["user_id"] for m in board.get("members", [])):
+        raise HTTPException(status_code=400, detail="User is already a board member")
+    
+    # Add to board members
+    new_member = {
+        "user_id": invite_user["user_id"],
+        "role": data.role,
+        "joined_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.boards.update_one(
+        {"board_id": board_id},
+        {"$push": {"members": new_member}}
+    )
+    
+    # Create notification for the invited user
+    notification = {
+        "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+        "user_id": invite_user["user_id"],
+        "type": "board_invite",
+        "title": "Board Invitation",
+        "message": f"{user.name} invited you to collaborate on '{board['name']}'",
+        "board_id": board_id,
+        "card_id": None,
+        "from_user_id": user.user_id,
+        "from_user_name": user.name,
+        "read": False,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.notifications.insert_one(notification)
+    
+    # Broadcast to WebSocket
+    await manager.broadcast(board_id, {
+        "type": "member_joined",
+        "user": {"user_id": invite_user["user_id"], "name": invite_user["name"], "email": invite_user["email"]},
+        "role": data.role
+    })
+    
+    return {"message": f"Invited {invite_user['name']} to the board", "member": new_member}
+
+@api_router.delete("/boards/{board_id}/members/{member_user_id}")
+async def remove_board_member(board_id: str, member_user_id: str, user: User = Depends(get_current_user)):
+    """Remove a member from a board"""
+    board = await db.boards.find_one({"board_id": board_id}, {"_id": 0})
+    if not board:
+        raise HTTPException(status_code=404, detail="Board not found")
+    
+    # Check if user is board owner
+    if board.get("created_by") != user.user_id:
+        raise HTTPException(status_code=403, detail="Only board owner can remove members")
+    
+    # Can't remove the owner
+    if member_user_id == board.get("created_by"):
+        raise HTTPException(status_code=400, detail="Cannot remove the board owner")
+    
+    await db.boards.update_one(
+        {"board_id": board_id},
+        {"$pull": {"members": {"user_id": member_user_id}}}
+    )
+    
+    return {"message": "Member removed"}
+
+@api_router.get("/boards/{board_id}/members")
+async def get_board_members(board_id: str, user: User = Depends(get_current_user)):
+    """Get all members of a board"""
+    board = await db.boards.find_one({"board_id": board_id}, {"_id": 0})
+    if not board:
+        raise HTTPException(status_code=404, detail="Board not found")
+    
+    # Get full user info for each member
+    members = []
+    for member in board.get("members", []):
+        user_info = await db.users.find_one(
+            {"user_id": member["user_id"]},
+            {"_id": 0, "password_hash": 0}
+        )
+        if user_info:
+            members.append({
+                **member,
+                "name": user_info.get("name"),
+                "email": user_info.get("email"),
+                "picture": user_info.get("picture")
+            })
+    
+    return members
+
+# ============== NOTIFICATIONS ==============
+
+@api_router.get("/notifications")
+async def get_notifications(user: User = Depends(get_current_user)):
+    """Get all notifications for current user"""
+    notifications = await db.notifications.find(
+        {"user_id": user.user_id},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(50).to_list(50)
+    return notifications
+
+@api_router.get("/notifications/unread-count")
+async def get_unread_count(user: User = Depends(get_current_user)):
+    """Get count of unread notifications"""
+    count = await db.notifications.count_documents({"user_id": user.user_id, "read": False})
+    return {"count": count}
+
+@api_router.patch("/notifications/{notification_id}/read")
+async def mark_notification_read(notification_id: str, user: User = Depends(get_current_user)):
+    """Mark a notification as read"""
+    result = await db.notifications.update_one(
+        {"notification_id": notification_id, "user_id": user.user_id},
+        {"$set": {"read": True}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return {"message": "Notification marked as read"}
+
+@api_router.post("/notifications/mark-all-read")
+async def mark_all_notifications_read(user: User = Depends(get_current_user)):
+    """Mark all notifications as read"""
+    await db.notifications.update_many(
+        {"user_id": user.user_id, "read": False},
+        {"$set": {"read": True}}
+    )
+    return {"message": "All notifications marked as read"}
+
+# Helper function to create notifications
+async def create_notification(user_id: str, notification_type: str, title: str, message: str, 
+                             from_user: User = None, board_id: str = None, card_id: str = None):
+    notification = {
+        "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+        "user_id": user_id,
+        "type": notification_type,
+        "title": title,
+        "message": message,
+        "board_id": board_id,
+        "card_id": card_id,
+        "from_user_id": from_user.user_id if from_user else None,
+        "from_user_name": from_user.name if from_user else None,
+        "read": False,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.notifications.insert_one(notification)
+    return notification
+
 # ============== LIST ROUTES ==============
 
 @api_router.post("/boards/{board_id}/lists")
