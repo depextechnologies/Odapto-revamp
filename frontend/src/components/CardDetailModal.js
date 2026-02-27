@@ -107,12 +107,7 @@ export const CardDetailModal = ({ card, onClose, onUpdate, onDelete }) => {
     if (!newChecklistItem.trim()) return;
 
     try {
-      const response = await fetch(`${API}/cards/${card.card_id}/checklist`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ text: newChecklistItem })
-      });
+      const response = await apiPost(`/cards/${card.card_id}/checklist`, { text: newChecklistItem });
 
       if (response.ok) {
         const item = await response.json();
@@ -129,10 +124,7 @@ export const CardDetailModal = ({ card, onClose, onUpdate, onDelete }) => {
 
   const toggleChecklistItem = async (itemId) => {
     try {
-      await fetch(`${API}/cards/${card.card_id}/checklist/${itemId}`, {
-        method: 'PATCH',
-        credentials: 'include'
-      });
+      await apiPatch(`/cards/${card.card_id}/checklist/${itemId}`, {});
 
       const updatedChecklist = checklist.map(item =>
         item.item_id === itemId ? { ...item, completed: !item.completed } : item
@@ -148,12 +140,7 @@ export const CardDetailModal = ({ card, onClose, onUpdate, onDelete }) => {
     if (!newComment.trim()) return;
 
     try {
-      const response = await fetch(`${API}/cards/${card.card_id}/comments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ content: newComment })
-      });
+      const response = await apiPost(`/cards/${card.card_id}/comments`, { content: newComment });
 
       if (response.ok) {
         const comment = await response.json();
