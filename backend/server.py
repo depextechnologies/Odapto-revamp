@@ -233,6 +233,17 @@ class CommentCreate(BaseModel):
 class ChecklistItemCreate(BaseModel):
     text: str
 
+# Pending Invite model for non-registered users
+class PendingInvite(BaseModel):
+    invite_id: str
+    email: str
+    invite_type: str  # "card" or "board"
+    target_id: str  # card_id or board_id
+    board_id: str
+    invited_by: str
+    invited_by_name: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
 # ============== AUTH HELPERS ==============
 
 def hash_password(password: str) -> str:
