@@ -5,25 +5,38 @@ const getStoredToken = () => localStorage.getItem('odapto_session_token');
 
 export const apiCall = async (endpoint, options = {}) => {
   const token = getStoredToken();
-  const headers = {
-    ...options.headers,
-  };
+  const headers = new Headers();
   
+  // Add existing headers
+  if (options.headers) {
+    Object.entries(options.headers).forEach(([key, value]) => {
+      headers.set(key, value);
+    });
+  }
+  
+  // Add auth header if token exists
   if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+    headers.set('Authorization', `Bearer ${token}`);
   }
   
-  if (options.body && typeof options.body === 'object' && !(options.body instanceof FormData)) {
-    headers['Content-Type'] = 'application/json';
-    options.body = JSON.stringify(options.body);
+  // Prepare body and content-type
+  let body = options.body;
+  if (body && typeof body === 'object' && !(body instanceof FormData)) {
+    headers.set('Content-Type', 'application/json');
+    body = JSON.stringify(body);
   }
   
-  const response = await fetch(`${API}${endpoint}`, {
-    ...options,
+  const fetchOptions = {
+    method: options.method || 'GET',
     headers,
     credentials: 'include'
-  });
+  };
   
+  if (body !== undefined) {
+    fetchOptions.body = body;
+  }
+  
+  const response = await fetch(`${API}${endpoint}`, fetchOptions);
   return response;
 };
 
