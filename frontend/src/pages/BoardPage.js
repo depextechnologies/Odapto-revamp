@@ -56,9 +56,7 @@ export default function BoardPage() {
 
   const fetchBoard = useCallback(async () => {
     try {
-      const response = await fetch(`${API}/boards/${boardId}`, {
-        credentials: 'include'
-      });
+      const response = await apiGet(`/boards/${boardId}`);
 
       if (response.ok) {
         setBoard(await response.json());
