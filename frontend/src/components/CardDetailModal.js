@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -7,40 +7,47 @@ import { Label } from '../components/ui/label';
 import { Checkbox } from '../components/ui/checkbox';
 import { Calendar } from '../components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
+import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { toast } from 'sonner';
-import { format } from 'date-fns';
-import { apiPatch, apiPost, apiDelete } from '../utils/api';
+import { format, isToday, isPast, isFuture } from 'date-fns';
+import { apiPatch, apiPost, apiDelete, apiCall } from '../utils/api';
 import { 
-  X, 
   Calendar as CalendarIcon, 
   Tag, 
-  Users, 
   Paperclip,
   CheckSquare,
   MessageSquare,
   Trash2,
   Plus,
-  Send
+  Send,
+  UserPlus,
+  X,
+  Flag,
+  Upload
 } from 'lucide-react';
 
-const LABEL_OPTIONS = [
-  { value: 'red', color: 'bg-red-500', name: 'Red' },
-  { value: 'orange', color: 'bg-orange-500', name: 'Orange' },
-  { value: 'yellow', color: 'bg-yellow-500', name: 'Yellow' },
-  { value: 'green', color: 'bg-green-500', name: 'Green' },
-  { value: 'blue', color: 'bg-blue-500', name: 'Blue' },
-  { value: 'purple', color: 'bg-purple-500', name: 'Purple' },
-  { value: 'pink', color: 'bg-pink-500', name: 'Pink' }
+const API_BASE = process.env.REACT_APP_BACKEND_URL;
+
+const LABEL_COLORS = [
+  { color: '#EF4444', name: 'Red' },
+  { color: '#F97316', name: 'Orange' },
+  { color: '#EAB308', name: 'Yellow' },
+  { color: '#22C55E', name: 'Green' },
+  { color: '#3B82F6', name: 'Blue' },
+  { color: '#8B5CF6', name: 'Purple' },
+  { color: '#EC4899', name: 'Pink' },
+  { color: '#6B7280', name: 'Gray' }
 ];
 
 const PRIORITY_OPTIONS = [
-  { value: 'low', label: 'Low', color: 'text-green-500' },
-  { value: 'medium', label: 'Medium', color: 'text-yellow-500' },
-  { value: 'high', label: 'High', color: 'text-orange-500' },
-  { value: 'urgent', label: 'Urgent', color: 'text-red-500' }
+  { value: 'low', label: 'Low', color: 'bg-green-500' },
+  { value: 'medium', label: 'Medium', color: 'bg-yellow-500' },
+  { value: 'high', label: 'High', color: 'bg-orange-500' },
+  { value: 'urgent', label: 'Urgent', color: 'bg-red-500' }
 ];
 
 export const CardDetailModal = ({ card, onClose, onUpdate, onDelete }) => {
+  const fileInputRef = useRef(null);
   const [title, setTitle] = useState(card.title);
   const [description, setDescription] = useState(card.description || '');
   const [dueDate, setDueDate] = useState(card.due_date ? new Date(card.due_date) : null);
@@ -48,9 +55,24 @@ export const CardDetailModal = ({ card, onClose, onUpdate, onDelete }) => {
   const [priority, setPriority] = useState(card.priority || '');
   const [checklist, setChecklist] = useState(card.checklist || []);
   const [comments, setComments] = useState(card.comments || []);
+  const [assignedMembers, setAssignedMembers] = useState(card.assigned_members || []);
+  const [attachments, setAttachments] = useState(card.attachments || []);
   const [newChecklistItem, setNewChecklistItem] = useState('');
   const [newComment, setNewComment] = useState('');
   const [saving, setSaving] = useState(false);
+  
+  // Member invite state
+  const [showInviteInput, setShowInviteInput] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviting, setInviting] = useState(false);
+  
+  // Label editing state
+  const [editingLabel, setEditingLabel] = useState(null);
+  const [newLabelName, setNewLabelName] = useState('');
+  const [showLabelPicker, setShowLabelPicker] = useState(false);
+  
+  // Attachment upload
+  const [uploading, setUploading] = useState(false);
 
   const saveCard = async () => {
     setSaving(true);
@@ -95,11 +117,66 @@ export const CardDetailModal = ({ card, onClose, onUpdate, onDelete }) => {
     }
   };
 
-  const toggleLabel = (labelValue) => {
-    if (labels.includes(labelValue)) {
-      setLabels(labels.filter(l => l !== labelValue));
-    } else {
-      setLabels([...labels, labelValue]);
+  // Label functions
+  const addLabel = (color) => {
+    const existing = labels.find(l => l.color === color);
+    if (!existing) {
+      const newLabel = { color, name: '' };
+      setLabels([...labels, newLabel]);
+    }
+    setShowLabelPicker(false);
+  };
+
+  const updateLabelName = (color, name) => {
+    setLabels(labels.map(l => l.color === color ? { ...l, name } : l));
+  };
+
+  const removeLabel = (color) => {
+    setLabels(labels.filter(l => l.color !== color));
+  };
+
+  // Member invitation
+  const inviteMember = async () => {
+    if (!inviteEmail.trim()) return;
+    
+    setInviting(true);
+    try {
+      const response = await apiPost(`/cards/${card.card_id}/invite`, {
+        email: inviteEmail
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        toast.success(result.message);
+        if (result.member) {
+          setAssignedMembers([...assignedMembers, result.member]);
+          onUpdate({ ...card, assigned_members: [...assignedMembers, result.member] });
+        }
+        setInviteEmail('');
+        setShowInviteInput(false);
+      } else {
+        const error = await response.json();
+        toast.error(error.detail || 'Failed to invite member');
+      }
+    } catch (error) {
+      console.error('Failed to invite member:', error);
+      toast.error('Failed to invite member');
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  const removeMember = async (memberId) => {
+    try {
+      const response = await apiDelete(`/cards/${card.card_id}/members/${memberId}`);
+      if (response.ok) {
+        const updated = assignedMembers.filter(m => m.user_id !== memberId);
+        setAssignedMembers(updated);
+        onUpdate({ ...card, assigned_members: updated });
+        toast.success('Member removed');
+      }
+    } catch (error) {
+      console.error('Failed to remove member:', error);
     }
   };
 
@@ -155,11 +232,55 @@ export const CardDetailModal = ({ card, onClose, onUpdate, onDelete }) => {
     }
   };
 
+  // File upload
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await apiCall(`/cards/${card.card_id}/attachments`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (response.ok) {
+        const attachment = await response.json();
+        const updated = [...attachments, attachment];
+        setAttachments(updated);
+        onUpdate({ ...card, attachments: updated });
+        toast.success('File uploaded');
+      } else {
+        toast.error('Failed to upload file');
+      }
+    } catch (error) {
+      console.error('Failed to upload file:', error);
+      toast.error('Failed to upload file');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const completedCount = checklist.filter(item => item.completed).length;
+
+  const getInitials = (name) => {
+    return name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'U';
+  };
+
+  // Due date color helper
+  const getDueDateColor = () => {
+    if (!dueDate) return 'text-muted-foreground';
+    if (isToday(dueDate)) return 'text-orange-500';
+    if (isPast(dueDate)) return 'text-red-500';
+    return 'text-muted-foreground';
+  };
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-start justify-between">
             <Input
@@ -172,24 +293,138 @@ export const CardDetailModal = ({ card, onClose, onUpdate, onDelete }) => {
         </DialogHeader>
 
         <div className="grid grid-cols-3 gap-6 mt-4">
-          {/* Main content */}
+          {/* Main content - 2 columns */}
           <div className="col-span-2 space-y-6">
             {/* Labels */}
-            {labels.length > 0 && (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <Tag className="w-4 h-4" />
+                Labels
+              </Label>
               <div className="flex flex-wrap gap-2">
-                {labels.map((label) => {
-                  const labelOption = LABEL_OPTIONS.find(l => l.value === label);
-                  return (
-                    <span
-                      key={label}
-                      className={`px-3 py-1 rounded-full text-white text-sm ${labelOption?.color || 'bg-gray-500'}`}
-                    >
-                      {labelOption?.name || label}
-                    </span>
-                  );
-                })}
+                {labels.map((label, idx) => (
+                  <div 
+                    key={idx}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-full text-white text-sm"
+                    style={{ backgroundColor: label.color }}
+                  >
+                    {editingLabel === idx ? (
+                      <input
+                        type="text"
+                        value={label.name}
+                        onChange={(e) => updateLabelName(label.color, e.target.value)}
+                        onBlur={() => setEditingLabel(null)}
+                        onKeyDown={(e) => e.key === 'Enter' && setEditingLabel(null)}
+                        className="bg-transparent border-none outline-none w-20 text-sm"
+                        placeholder="Label name"
+                        autoFocus
+                      />
+                    ) : (
+                      <span 
+                        className="cursor-pointer"
+                        onClick={() => setEditingLabel(idx)}
+                      >
+                        {label.name || 'Click to name'}
+                      </span>
+                    )}
+                    <button onClick={() => removeLabel(label.color)} className="ml-1 hover:bg-white/20 rounded-full p-0.5">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+                <Popover open={showLabelPicker} onOpenChange={setShowLabelPicker}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm">
+                      <Plus className="w-4 h-4 mr-1" />
+                      Add Label
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-48">
+                    <div className="grid grid-cols-4 gap-2">
+                      {LABEL_COLORS.map((lc) => (
+                        <button
+                          key={lc.color}
+                          onClick={() => addLabel(lc.color)}
+                          className="w-8 h-8 rounded-lg"
+                          style={{ backgroundColor: lc.color }}
+                          title={lc.name}
+                        />
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
-            )}
+            </div>
+
+            {/* Assigned Members */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <UserPlus className="w-4 h-4" />
+                Assigned Members
+              </Label>
+              <div className="flex flex-wrap gap-2 items-center">
+                {assignedMembers.map((member) => (
+                  <div key={member.user_id} className="flex items-center gap-2 bg-muted px-2 py-1 rounded-full">
+                    <Avatar className="h-6 w-6">
+                      <AvatarImage src={member.picture} />
+                      <AvatarFallback className="bg-odapto-teal text-white text-xs">
+                        {getInitials(member.name)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="text-sm">{member.name}</span>
+                    <button 
+                      onClick={() => removeMember(member.user_id)}
+                      className="hover:bg-destructive/20 rounded-full p-0.5"
+                    >
+                      <X className="w-3 h-3 text-destructive" />
+                    </button>
+                  </div>
+                ))}
+                
+                {showInviteInput ? (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="email"
+                      placeholder="Email address"
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && inviteMember()}
+                      className="h-8 w-48"
+                      data-testid="card-invite-email"
+                    />
+                    <Button 
+                      size="sm" 
+                      onClick={inviteMember}
+                      disabled={inviting}
+                      className="h-8 bg-odapto-orange hover:bg-odapto-orange-hover text-white"
+                    >
+                      {inviting ? '...' : 'Add'}
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      variant="ghost"
+                      onClick={() => { setShowInviteInput(false); setInviteEmail(''); }}
+                      className="h-8"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => setShowInviteInput(true)}
+                    data-testid="add-member-btn"
+                  >
+                    <UserPlus className="w-4 h-4 mr-1" />
+                    Invite
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Invite anyone by email. New users will be added after they sign up.
+              </p>
+            </div>
 
             {/* Description */}
             <div className="space-y-2">
@@ -204,6 +439,47 @@ export const CardDetailModal = ({ card, onClose, onUpdate, onDelete }) => {
                 rows={4}
                 data-testid="card-description-input"
               />
+            </div>
+
+            {/* Attachments */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <Paperclip className="w-4 h-4" />
+                Attachments
+              </Label>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                className="hidden"
+              />
+              <div className="space-y-2">
+                {attachments.map((att, idx) => (
+                  <div key={idx} className="flex items-center gap-2 p-2 bg-muted rounded-lg">
+                    <Paperclip className="w-4 h-4 text-muted-foreground" />
+                    <a 
+                      href={`${API_BASE}${att.url}`} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-sm text-odapto-orange hover:underline flex-1"
+                    >
+                      {att.filename}
+                    </a>
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(att.uploaded_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                ))}
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  {uploading ? 'Uploading...' : 'Upload File'}
+                </Button>
+              </div>
             </div>
 
             {/* Checklist */}
@@ -222,7 +498,7 @@ export const CardDetailModal = ({ card, onClose, onUpdate, onDelete }) => {
                 <div className="w-full bg-muted rounded-full h-2">
                   <div
                     className="bg-odapto-teal h-2 rounded-full transition-all"
-                    style={{ width: `${(completedCount / checklist.length) * 100}%` }}
+                    style={{ width: `${checklist.length > 0 ? (completedCount / checklist.length) * 100 : 0}%` }}
                   />
                 </div>
               )}
@@ -301,7 +577,7 @@ export const CardDetailModal = ({ card, onClose, onUpdate, onDelete }) => {
               </Label>
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full justify-start">
+                  <Button variant="outline" className={`w-full justify-start ${getDueDateColor()}`}>
                     {dueDate ? format(dueDate, 'PPP') : 'Set due date'}
                   </Button>
                 </PopoverTrigger>
@@ -315,50 +591,42 @@ export const CardDetailModal = ({ card, onClose, onUpdate, onDelete }) => {
                 </PopoverContent>
               </Popover>
               {dueDate && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setDueDate(null)}
-                  className="text-xs text-muted-foreground"
-                >
-                  Clear due date
-                </Button>
+                <div className="flex items-center justify-between">
+                  <span className={`text-xs ${getDueDateColor()}`}>
+                    {isToday(dueDate) && 'Due today!'}
+                    {isPast(dueDate) && !isToday(dueDate) && 'Overdue!'}
+                    {isFuture(dueDate) && 'Upcoming'}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setDueDate(null)}
+                    className="text-xs text-muted-foreground h-6"
+                  >
+                    Clear
+                  </Button>
+                </div>
               )}
-            </div>
-
-            {/* Labels */}
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2 text-sm">
-                <Tag className="w-4 h-4" />
-                Labels
-              </Label>
-              <div className="flex flex-wrap gap-2">
-                {LABEL_OPTIONS.map((label) => (
-                  <button
-                    key={label.value}
-                    onClick={() => toggleLabel(label.value)}
-                    className={`w-8 h-6 rounded ${label.color} ${
-                      labels.includes(label.value) ? 'ring-2 ring-offset-2 ring-foreground' : ''
-                    }`}
-                  />
-                ))}
-              </div>
             </div>
 
             {/* Priority */}
             <div className="space-y-2">
-              <Label className="text-sm">Priority</Label>
-              <div className="flex flex-wrap gap-2">
+              <Label className="flex items-center gap-2 text-sm">
+                <Flag className="w-4 h-4" />
+                Priority
+              </Label>
+              <div className="grid grid-cols-2 gap-2">
                 {PRIORITY_OPTIONS.map((opt) => (
                   <button
                     key={opt.value}
                     onClick={() => setPriority(priority === opt.value ? '' : opt.value)}
-                    className={`px-3 py-1 rounded-full text-sm border transition-colors ${
+                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
                       priority === opt.value 
-                        ? `${opt.color} border-current` 
-                        : 'text-muted-foreground border-border hover:border-foreground'
+                        ? `${opt.color} text-white` 
+                        : 'bg-muted text-muted-foreground hover:bg-muted/80'
                     }`}
                   >
+                    <span className={`w-2 h-2 rounded-full ${opt.color}`} />
                     {opt.label}
                   </button>
                 ))}
@@ -366,7 +634,7 @@ export const CardDetailModal = ({ card, onClose, onUpdate, onDelete }) => {
             </div>
 
             {/* Actions */}
-            <div className="pt-4 space-y-2">
+            <div className="pt-4 space-y-2 border-t border-border">
               <Button 
                 onClick={saveCard} 
                 className="w-full bg-odapto-orange hover:bg-odapto-orange-hover text-white"
