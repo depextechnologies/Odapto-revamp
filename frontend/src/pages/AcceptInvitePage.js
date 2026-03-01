@@ -29,7 +29,12 @@ const AcceptInvitePage = () => {
 
     const fetchInvitation = async () => {
       try {
-        const data = await apiGet(`/invitations/${token}`);
+        const response = await apiGet(`/invitations/${token}`);
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.detail || 'Failed to load invitation');
+        }
+        const data = await response.json();
         setInvitation(data);
         setError(null);
       } catch (err) {
@@ -38,7 +43,7 @@ const AcceptInvitePage = () => {
         } else if (err.message?.includes('already been used')) {
           setError('This invitation has already been used.');
         } else {
-          setError('Invalid or expired invitation link.');
+          setError(err.message || 'Invalid or expired invitation link.');
         }
       } finally {
         setLoading(false);
