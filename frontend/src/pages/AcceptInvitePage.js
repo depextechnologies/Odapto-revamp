@@ -62,7 +62,12 @@ const AcceptInvitePage = () => {
 
     setAccepting(true);
     try {
-      const result = await apiPost(`/invitations/${token}/accept`, {});
+      const response = await apiPost(`/invitations/${token}/accept`, {});
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to accept invitation');
+      }
+      const result = await response.json();
       setAccepted(true);
       toast.success('Invitation accepted!', {
         description: `You've joined "${invitation.target_name}"`
