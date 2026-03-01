@@ -21,7 +21,7 @@ Build Odapto with:
 - Full system access
 - Can manage all users and roles
 - Can create/manage template categories
-- View platform analytics
+- View platform analytics and email logs
 - First registered user becomes admin
 
 ### Privileged User
@@ -42,8 +42,9 @@ Build Odapto with:
 5. **Card Features**: Description, due dates, labels, checklists, comments
 6. **Templates**: Public template gallery with categories
 7. **Admin Panel**: User management, analytics, category management
+8. **Email Invitations**: Gmail SMTP for workspace/board/card invitations
 
-## What's Been Implemented (Feb 27, 2026)
+## What's Been Implemented
 
 ### Backend (FastAPI)
 - [x] Email/Password registration and login
@@ -56,8 +57,14 @@ Build Odapto with:
 - [x] List CRUD with position management
 - [x] Card CRUD with full features (labels, due dates, checklists, comments)
 - [x] Card move between lists endpoint
-- [x] **Card-level member invitation** (NEW - Feb 27)
-- [x] **Pending invites for unregistered users** (NEW - Feb 27)
+- [x] Card-level member invitation
+- [x] Pending invites for unregistered users
+- [x] **Gmail SMTP Email Service** (NEW - Mar 1)
+- [x] **Secure invitation tokens with 7-day expiration** (NEW - Mar 1)
+- [x] **Single-use invitation token validation** (NEW - Mar 1)
+- [x] **Email logs with success/failure tracking** (NEW - Mar 1)
+- [x] **Admin email logs endpoint** (NEW - Mar 1)
+- [x] **Admin pending invitations endpoint** (NEW - Mar 1)
 - [x] Comment notifications to board members
 - [x] Notification system (create, read, mark read)
 - [x] Template categories (admin only)
@@ -77,13 +84,13 @@ Build Odapto with:
 - [x] Kanban board with drag-drop (hello-pangea/dnd)
 - [x] Board member management and invitation
 - [x] Board background color/image customization
-- [x] **Enhanced card preview with:**
+- [x] Enhanced card preview with:
   - [x] Due date color-coding (red=overdue, orange=today, gray=future)
   - [x] Priority badges (Low/Medium/High/Urgent)
   - [x] Named labels with colors
   - [x] Assigned member avatars
   - [x] Attachment count
-- [x] **Enhanced card detail modal with:**
+- [x] Enhanced card detail modal with:
   - [x] Labels section with named labels
   - [x] Assigned Members with card-level invitations
   - [x] Due Date picker with status indicator
@@ -92,6 +99,11 @@ Build Odapto with:
   - [x] Attachments with upload
   - [x] Checklist with progress bar
   - [x] Comments section
+- [x] **Invitation Accept Page** (NEW - Mar 1)
+  - [x] Shows invitation details (workspace/board/card name, inviter, role, expiration)
+  - [x] Login/SignUp buttons for unauthenticated users
+  - [x] Accept button for authenticated users
+  - [x] Redirect handling for invitation flow
 - [x] Template gallery page
 - [x] Admin panel with user/category management and analytics
 - [x] Profile page
@@ -99,6 +111,18 @@ Build Odapto with:
 - [x] Dark/Light theme support
 - [x] Session persistence (localStorage + cookies)
 - [x] Toast notifications (sonner)
+
+### Email System
+- [x] Gmail SMTP integration with STARTTLS
+- [x] Branded email templates with Odapto colors
+- [x] Workspace invitation emails
+- [x] Board invitation emails
+- [x] Card assignment emails
+- [x] Invitation token generation and validation
+- [x] 7-day token expiration
+- [x] Single-use token enforcement
+- [x] Email send logging (success/failure)
+- [x] Retry mechanism (3 attempts)
 
 ### Design
 - Odapto branding with logo colors (Orange #E67E4C, Teal #3A8B84)
@@ -108,13 +132,15 @@ Build Odapto with:
 
 ## Prioritized Backlog
 
-### P0 (Critical - COMPLETED Feb 27)
+### P0 (Critical - COMPLETED)
 - [x] Card-level member invitations
 - [x] Invite unregistered users via email (pending invite system)
 - [x] Due date color-coding on card previews
 - [x] Named labels in card modal
 - [x] Priority selector in card modal
 - [x] Attachments section in card modal
+- [x] Gmail SMTP email invitations
+- [x] Secure invitation tokens
 
 ### P1 (High Priority - Next)
 1. WebSocket integration for real-time board updates
@@ -146,6 +172,7 @@ Build Odapto with:
 - **Backend**: FastAPI, Motor (async MongoDB), bcrypt, httpx
 - **Database**: MongoDB
 - **Auth**: Session tokens + Emergent Google OAuth
+- **Email**: Gmail SMTP (smtp.gmail.com:587 with STARTTLS)
 - **Storage**: Local file storage (MVP), ready for S3 migration
 
 ### Key API Endpoints
@@ -157,9 +184,13 @@ All endpoints prefixed with `/api`:
 - `/api/cards/*` - Card operations
 - `/api/cards/{card_id}/invite` - Card-level member invitation
 - `/api/cards/{card_id}/members/{member_id}` - Remove card member
+- `/api/invitations/{token}` - Get invitation details (public)
+- `/api/invitations/{token}/accept` - Accept invitation (auth required)
 - `/api/templates` - Template gallery
 - `/api/template-categories` - Admin category management
 - `/api/admin/*` - Admin operations
+- `/api/admin/email-logs` - Email send logs
+- `/api/admin/pending-invitations` - Pending invitation tokens
 - `/api/search` - Global search
 - `/ws/board/{board_id}` - WebSocket for real-time
 
@@ -170,12 +201,25 @@ All endpoints prefixed with `/api`:
 - **lists**: list_id, board_id, name, position, wip_limit
 - **cards**: card_id, list_id, board_id, title, description, due_date, labels, priority, assigned_members, attachments, checklist, comments
 - **pending_invites**: invite_id, email, invite_type, target_id, board_id, invited_by
+- **invitation_tokens**: token, email, invitation_type, target_id, role, invited_by, target_name, used, expires_at
+- **email_logs**: log_id, to_email, subject, email_type, success, error, invitation_token, sent_at
 - **notifications**: notification_id, user_id, type, title, message, read
 
 ## Test Credentials
 - **Admin**: odapto.admin@emergent.com / SecurePassword123!
-- **Test User**: newuser@example.com / Password123!
 - **Test Board**: board_8b24ee8c579c
+- **Test Workspace**: ws_3a39c12c673e
+
+## Environment Variables (Backend)
+- MONGO_URL - MongoDB connection string
+- DB_NAME - Database name
+- CORS_ORIGINS - Allowed CORS origins
+- SMTP_HOST - Gmail SMTP host (smtp.gmail.com)
+- SMTP_PORT - SMTP port (587)
+- SMTP_USERNAME - Gmail address
+- SMTP_PASSWORD - Gmail App Password
+- SMTP_FROM_NAME - Email sender name (Odapto)
+- FRONTEND_URL - Frontend base URL for invitation links
 
 ## Next Tasks
 1. Implement real-time board sync via WebSockets
