@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { Button } from '../components/ui/button';
@@ -19,6 +19,17 @@ export default function RegisterPage() {
   const { register, loginWithGoogle } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // Check for redirect and pre-fill email from invitation
+  const redirectParam = searchParams.get('redirect');
+  const emailParam = searchParams.get('email');
+  
+  useEffect(() => {
+    if (emailParam) {
+      setEmail(emailParam);
+    }
+  }, [emailParam]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -33,7 +44,8 @@ export default function RegisterPage() {
     try {
       await register(name, email, password);
       toast.success('Account created successfully!');
-      navigate('/dashboard', { replace: true });
+      // Navigate to redirect URL or dashboard
+      navigate(redirectParam || '/dashboard', { replace: true });
     } catch (error) {
       toast.error(error.message || 'Registration failed');
     } finally {
