@@ -15,17 +15,20 @@ from functools import partial
 
 logger = logging.getLogger(__name__)
 
-# SMTP Configuration from environment
-SMTP_HOST = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
-SMTP_PORT = int(os.environ.get('SMTP_PORT', 587))
-SMTP_USERNAME = os.environ.get('SMTP_USERNAME', '')
-SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '')
-SMTP_FROM_NAME = os.environ.get('SMTP_FROM_NAME', 'Odapto')
-
 # Odapto brand colors
 BRAND_ORANGE = "#E67E4C"
 BRAND_TEAL = "#3A8B84"
 BRAND_DARK = "#1a1a1a"
+
+def get_smtp_config():
+    """Get SMTP configuration from environment at runtime"""
+    return {
+        'host': os.environ.get('SMTP_HOST', 'smtp.gmail.com'),
+        'port': int(os.environ.get('SMTP_PORT', 587)),
+        'username': os.environ.get('SMTP_USERNAME', ''),
+        'password': os.environ.get('SMTP_PASSWORD', ''),
+        'from_name': os.environ.get('SMTP_FROM_NAME', 'Odapto')
+    }
 
 def get_email_template(content: str, title: str = "Odapto") -> str:
     """Generate branded HTML email template"""
