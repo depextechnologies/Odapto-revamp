@@ -579,6 +579,164 @@ async def delete_user(user_id: str, admin: User = Depends(require_admin)):
     await db.user_sessions.delete_many({"user_id": user_id})
     return {"message": "User deleted"}
 
+# ============== INVITATION TOKEN ROUTES ==============
+
+@api_router.get("/invitations/{token}")
+async def get_invitation_details(token: str):
+    """Get invitation details by token - public endpoint for invite accept page"""
+    invitation = await db.invitation_tokens.find_one({"token": token}, {"_id": 0})
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Invalid invitation link")
+    
+    # Check if expired
+    expires_at = datetime.fromisoformat(invitation["expires_at"].replace('Z', '+00:00'))
+    if datetime.now(timezone.utc) > expires_at:
+        raise HTTPException(status_code=410, detail="This invitation has expired")
+    
+    # Check if already used
+    if invitation.get("used"):
+        raise HTTPException(status_code=410, detail="This invitation has already been used")
+    
+    return {
+        "invitation_type": invitation["invitation_type"],
+        "target_name": invitation["target_name"],
+        "invited_by_name": invitation["invited_by_name"],
+        "role": invitation.get("role"),
+        "email": invitation["email"],
+        "expires_at": invitation["expires_at"]
+    }
+
+@api_router.post("/invitations/{token}/accept")
+async def accept_invitation(token: str, user: User = Depends(get_current_user)):
+    """Accept an invitation - requires authentication"""
+    invitation = await db.invitation_tokens.find_one({"token": token}, {"_id": 0})
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Invalid invitation link")
+    
+    # Check if expired
+    expires_at = datetime.fromisoformat(invitation["expires_at"].replace('Z', '+00:00'))
+    if datetime.now(timezone.utc) > expires_at:
+        raise HTTPException(status_code=410, detail="This invitation has expired")
+    
+    # Check if already used
+    if invitation.get("used"):
+        raise HTTPException(status_code=410, detail="This invitation has already been used")
+    
+    # Verify email matches (optional, allows anyone to accept if logged in)
+    # For strict enforcement, uncomment the following:
+    # if invitation["email"].lower() != user.email.lower():
+    #     raise HTTPException(status_code=403, detail="This invitation was sent to a different email")
+    
+    result = {"message": "Invitation accepted", "redirect": "/dashboard"}
+    
+    if invitation["invitation_type"] == "workspace":
+        # Add user to workspace
+        workspace = await db.workspaces.find_one({"workspace_id": invitation["target_id"]}, {"_id": 0})
+        if not workspace:
+            raise HTTPException(status_code=404, detail="Workspace no longer exists")
+        
+        # Check if already member
+        if not any(m["user_id"] == user.user_id for m in workspace.get("members", [])):
+            await db.workspaces.update_one(
+                {"workspace_id": invitation["target_id"]},
+                {"$push": {"members": {"user_id": user.user_id, "role": invitation.get("role", "member")}}}
+            )
+        
+        result["redirect"] = f"/workspace/{invitation['target_id']}"
+        result["workspace_id"] = invitation["target_id"]
+        result["workspace_name"] = invitation["target_name"]
+        
+    elif invitation["invitation_type"] == "board":
+        # Add user to board
+        board = await db.boards.find_one({"board_id": invitation["target_id"]}, {"_id": 0})
+        if not board:
+            raise HTTPException(status_code=404, detail="Board no longer exists")
+        
+        # Check if already member
+        if not any(m["user_id"] == user.user_id for m in board.get("members", [])):
+            new_member = {
+                "user_id": user.user_id,
+                "role": invitation.get("role", "member"),
+                "joined_at": datetime.now(timezone.utc).isoformat()
+            }
+            await db.boards.update_one(
+                {"board_id": invitation["target_id"]},
+                {"$push": {"members": new_member}}
+            )
+            
+            # Also add to workspace if not already member
+            workspace = await db.workspaces.find_one({"workspace_id": board["workspace_id"]}, {"_id": 0})
+            if workspace and not any(m["user_id"] == user.user_id for m in workspace.get("members", [])):
+                await db.workspaces.update_one(
+                    {"workspace_id": board["workspace_id"]},
+                    {"$push": {"members": {"user_id": user.user_id, "role": "member"}}}
+                )
+        
+        result["redirect"] = f"/board/{invitation['target_id']}"
+        result["board_id"] = invitation["target_id"]
+        result["board_name"] = invitation["target_name"]
+        
+    elif invitation["invitation_type"] == "card":
+        # Add user to card
+        card = await db.cards.find_one({"card_id": invitation["target_id"]}, {"_id": 0})
+        if not card:
+            raise HTTPException(status_code=404, detail="Card no longer exists")
+        
+        # Check if already assigned
+        if not any(m["user_id"] == user.user_id for m in card.get("assigned_members", [])):
+            new_member = {
+                "user_id": user.user_id,
+                "name": user.name,
+                "email": user.email,
+                "picture": user.picture
+            }
+            await db.cards.update_one(
+                {"card_id": invitation["target_id"]},
+                {"$push": {"assigned_members": new_member}}
+            )
+            
+            # Also add to board and workspace if not already member
+            board = await db.boards.find_one({"board_id": invitation["board_id"]}, {"_id": 0})
+            if board:
+                if not any(m["user_id"] == user.user_id for m in board.get("members", [])):
+                    await db.boards.update_one(
+                        {"board_id": invitation["board_id"]},
+                        {"$push": {"members": {"user_id": user.user_id, "role": "member", "joined_at": datetime.now(timezone.utc).isoformat()}}}
+                    )
+                
+                workspace = await db.workspaces.find_one({"workspace_id": board["workspace_id"]}, {"_id": 0})
+                if workspace and not any(m["user_id"] == user.user_id for m in workspace.get("members", [])):
+                    await db.workspaces.update_one(
+                        {"workspace_id": board["workspace_id"]},
+                        {"$push": {"members": {"user_id": user.user_id, "role": "member"}}}
+                    )
+        
+        result["redirect"] = f"/board/{invitation['board_id']}"
+        result["card_id"] = invitation["target_id"]
+        result["card_name"] = invitation["target_name"]
+    
+    # Mark invitation as used
+    await db.invitation_tokens.update_one(
+        {"token": token},
+        {"$set": {"used": True, "used_at": datetime.now(timezone.utc).isoformat(), "used_by": user.user_id}}
+    )
+    
+    # Remove any pending invites for this email
+    await db.pending_invites.delete_many({"email": invitation["email"]})
+    
+    # Create notification
+    await create_notification(
+        user_id=user.user_id,
+        notification_type=f"{invitation['invitation_type']}_accepted",
+        title="Invitation Accepted",
+        message=f"You've joined '{invitation['target_name']}'",
+        from_user=None,
+        board_id=invitation.get("board_id"),
+        card_id=invitation["target_id"] if invitation["invitation_type"] == "card" else None
+    )
+    
+    return result
+
 # ============== WORKSPACE ROUTES ==============
 
 @api_router.post("/workspaces", response_model=Dict[str, Any])
