@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../components/ui/dialog';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
@@ -18,7 +18,12 @@ import {
   ArrowRight,
   User,
   Layers,
-  Filter
+  Filter,
+  List,
+  Square,
+  Eye,
+  Users,
+  X
 } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -40,6 +45,11 @@ export default function TemplatesPage() {
   const [selectedWorkspace, setSelectedWorkspace] = useState('');
   const [newBoardName, setNewBoardName] = useState('');
   const [creating, setCreating] = useState(false);
+  
+  // Preview state
+  const [previewDialogOpen, setPreviewDialogOpen] = useState(false);
+  const [previewTemplate, setPreviewTemplate] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -73,6 +83,26 @@ export default function TemplatesPage() {
     }
   };
 
+  const handlePreviewTemplate = async (template) => {
+    setPreviewLoading(true);
+    setPreviewDialogOpen(true);
+    try {
+      const response = await fetch(`${API}/templates/${template.board_id}`);
+      if (response.ok) {
+        setPreviewTemplate(await response.json());
+      } else {
+        toast.error('Failed to load template preview');
+        setPreviewDialogOpen(false);
+      }
+    } catch (error) {
+      console.error('Failed to fetch template preview:', error);
+      toast.error('Failed to load template preview');
+      setPreviewDialogOpen(false);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
   const handleUseTemplate = (template) => {
     if (!isAuthenticated) {
       toast.error('Please log in to use templates');
@@ -82,6 +112,7 @@ export default function TemplatesPage() {
 
     setSelectedTemplate(template);
     setNewBoardName(template.template_name || '');
+    setPreviewDialogOpen(false);
     setUseDialogOpen(true);
   };
 
@@ -233,10 +264,20 @@ export default function TemplatesPage() {
                 <div className="bg-card rounded-xl border border-border hover:border-odapto-orange/50 hover:shadow-lg transition-all overflow-hidden">
                   {/* Template Preview */}
                   <div 
-                    className="h-32 p-4 flex flex-col justify-end text-white relative"
+                    className="h-32 p-4 flex flex-col justify-end text-white relative cursor-pointer"
                     style={{ backgroundColor: template.background || '#3A8B84' }}
+                    onClick={() => handlePreviewTemplate(template)}
                   >
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+                    
+                    {/* Preview overlay on hover */}
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <div className="flex items-center gap-2 bg-white/20 px-3 py-1.5 rounded-full backdrop-blur-sm">
+                        <Eye className="w-4 h-4" />
+                        <span className="text-sm font-medium">Preview</span>
+                      </div>
+                    </div>
+                    
                     <div className="relative z-10">
                       <h3 className="font-heading font-semibold text-lg">
                         {template.template_name || template.name}
@@ -252,10 +293,28 @@ export default function TemplatesPage() {
                   {/* Template Info */}
                   <div className="p-4">
                     {template.template_description && (
-                      <p className="text-sm text-muted-foreground line-clamp-2 mb-4">
+                      <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
                         {template.template_description}
                       </p>
                     )}
+                    
+                    {/* Stats Row */}
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
+                      <span className="flex items-center gap-1" title="Lists">
+                        <List className="w-3.5 h-3.5" />
+                        {template.list_count || 0} lists
+                      </span>
+                      <span className="flex items-center gap-1" title="Cards">
+                        <Square className="w-3.5 h-3.5" />
+                        {template.card_count || 0} cards
+                      </span>
+                      {template.usage_count > 0 && (
+                        <span className="flex items-center gap-1" title="Times used">
+                          <Users className="w-3.5 h-3.5" />
+                          {template.usage_count} uses
+                        </span>
+                      )}
+                    </div>
 
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -281,11 +340,123 @@ export default function TemplatesPage() {
         )}
       </div>
 
+      {/* Template Preview Dialog */}
+      <Dialog open={previewDialogOpen} onOpenChange={setPreviewDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          {previewLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="w-10 h-10 border-4 border-odapto-orange border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : previewTemplate ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-3">
+                  <div 
+                    className="w-10 h-10 rounded-lg" 
+                    style={{ backgroundColor: previewTemplate.background || '#3A8B84' }}
+                  />
+                  <div>
+                    <span className="text-xl">{previewTemplate.template_name}</span>
+                    {previewTemplate.category && (
+                      <span className="ml-2 text-xs font-normal px-2 py-0.5 bg-muted rounded-full">
+                        {previewTemplate.category.name}
+                      </span>
+                    )}
+                  </div>
+                </DialogTitle>
+                {previewTemplate.template_description && (
+                  <DialogDescription className="mt-2">
+                    {previewTemplate.template_description}
+                  </DialogDescription>
+                )}
+              </DialogHeader>
+              
+              <div className="mt-4">
+                {/* Template structure preview */}
+                <div className="flex gap-4 overflow-x-auto pb-4">
+                  {previewTemplate.lists?.map((list) => (
+                    <div 
+                      key={list.list_id}
+                      className="flex-shrink-0 w-64 bg-muted rounded-lg p-3"
+                    >
+                      <h4 className="font-semibold text-sm mb-2 text-card-foreground">{list.name}</h4>
+                      <div className="space-y-2">
+                        {list.cards?.slice(0, 3).map((card) => (
+                          <div 
+                            key={card.card_id}
+                            className="bg-card rounded-md p-2 shadow-sm"
+                          >
+                            <p className="text-sm font-medium line-clamp-2">{card.title}</p>
+                            {(card.labels?.length > 0 || card.due_date) && (
+                              <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                                {card.labels?.slice(0, 3).map((label, idx) => (
+                                  <span 
+                                    key={idx}
+                                    className="w-6 h-1.5 rounded-full"
+                                    style={{ backgroundColor: label.color }}
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        {list.cards?.length > 3 && (
+                          <p className="text-xs text-muted-foreground text-center">
+                            + {list.cards.length - 3} more cards
+                          </p>
+                        )}
+                        {list.cards?.length === 0 && (
+                          <p className="text-xs text-muted-foreground text-center py-2">
+                            Empty list
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {(!previewTemplate.lists || previewTemplate.lists.length === 0) && (
+                    <p className="text-muted-foreground text-sm">No lists in this template.</p>
+                  )}
+                </div>
+                
+                {/* Stats and actions */}
+                <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
+                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                    <span className="flex items-center gap-1">
+                      <List className="w-4 h-4" />
+                      {previewTemplate.lists?.length || 0} lists
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Square className="w-4 h-4" />
+                      {previewTemplate.lists?.reduce((acc, l) => acc + (l.cards?.length || 0), 0)} cards
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <User className="w-4 h-4" />
+                      {previewTemplate.creator?.name || 'Unknown'}
+                    </span>
+                  </div>
+                  <Button
+                    onClick={() => handleUseTemplate(previewTemplate)}
+                    className="bg-odapto-orange hover:bg-odapto-orange-hover text-white"
+                    data-testid="preview-use-template-btn"
+                  >
+                    Use This Template
+                    <ArrowRight className="w-4 h-4 ml-1" />
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
       {/* Use Template Dialog */}
       <Dialog open={useDialogOpen} onOpenChange={setUseDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Use Template</DialogTitle>
+            <DialogDescription>
+              Create a new board from "{selectedTemplate?.template_name}"
+            </DialogDescription>
           </DialogHeader>
           <form onSubmit={useTemplate} className="space-y-4 mt-4">
             <div className="space-y-2">

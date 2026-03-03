@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -9,8 +9,8 @@ import { Calendar } from '../components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { toast } from 'sonner';
-import { format, isToday, isPast, isFuture } from 'date-fns';
-import { apiPatch, apiPost, apiDelete, apiCall } from '../utils/api';
+import { format, isToday, isPast, isFuture, formatDistanceToNow } from 'date-fns';
+import { apiPatch, apiPost, apiDelete, apiCall, apiGet } from '../utils/api';
 import { 
   Calendar as CalendarIcon, 
   Tag, 
@@ -23,7 +23,12 @@ import {
   UserPlus,
   X,
   Flag,
-  Upload
+  Upload,
+  History,
+  User,
+  Edit3,
+  Move,
+  AlertCircle
 } from 'lucide-react';
 
 const API_BASE = process.env.REACT_APP_BACKEND_URL;
@@ -45,6 +50,84 @@ const PRIORITY_OPTIONS = [
   { value: 'high', label: 'High', color: 'bg-orange-500' },
   { value: 'urgent', label: 'Urgent', color: 'bg-red-500' }
 ];
+
+// Activity description helper
+const getActivityDescription = (activity) => {
+  const details = activity.details || {};
+  switch (activity.action) {
+    case 'created':
+      return `created this card in "${details.list_name || 'a list'}"`;
+    case 'updated_title':
+      return `changed the title from "${details.old_title}" to "${details.title}"`;
+    case 'updated_description':
+      return 'updated the description';
+    case 'set_due_date':
+      return `set the due date to ${format(new Date(details.due_date), 'MMM d, yyyy')}`;
+    case 'removed_due_date':
+      return 'removed the due date';
+    case 'set_priority':
+      return `changed priority to ${details.priority || 'none'}`;
+    case 'added_label':
+      return `added a label`;
+    case 'removed_label':
+      return `removed a label`;
+    case 'added_member':
+      return `added ${details.member_name} to this card`;
+    case 'removed_member':
+      return `removed ${details.member_name} from this card`;
+    case 'added_checklist_item':
+      return `added "${details.item_text}" to the checklist`;
+    case 'completed_checklist_item':
+      return `completed "${details.item_text}"`;
+    case 'uncompleted_checklist_item':
+      return `marked "${details.item_text}" as incomplete`;
+    case 'added_comment':
+      return `commented: "${details.comment_preview}..."`;
+    case 'added_attachment':
+      return `attached ${details.filename}`;
+    case 'moved':
+      return `moved this card from "${details.from_list}" to "${details.to_list}"`;
+    case 'deleted':
+      return 'deleted this card';
+    default:
+      return activity.action;
+  }
+};
+
+const getActivityIcon = (action) => {
+  switch (action) {
+    case 'created':
+      return <Plus className="w-3 h-3" />;
+    case 'updated_title':
+    case 'updated_description':
+      return <Edit3 className="w-3 h-3" />;
+    case 'set_due_date':
+    case 'removed_due_date':
+      return <CalendarIcon className="w-3 h-3" />;
+    case 'set_priority':
+      return <Flag className="w-3 h-3" />;
+    case 'added_label':
+    case 'removed_label':
+      return <Tag className="w-3 h-3" />;
+    case 'added_member':
+    case 'removed_member':
+      return <UserPlus className="w-3 h-3" />;
+    case 'added_checklist_item':
+    case 'completed_checklist_item':
+    case 'uncompleted_checklist_item':
+      return <CheckSquare className="w-3 h-3" />;
+    case 'added_comment':
+      return <MessageSquare className="w-3 h-3" />;
+    case 'added_attachment':
+      return <Paperclip className="w-3 h-3" />;
+    case 'moved':
+      return <Move className="w-3 h-3" />;
+    case 'deleted':
+      return <Trash2 className="w-3 h-3" />;
+    default:
+      return <AlertCircle className="w-3 h-3" />;
+  }
+};
 
 export const CardDetailModal = ({ card, onClose, onUpdate, onDelete }) => {
   const fileInputRef = useRef(null);
@@ -73,6 +156,28 @@ export const CardDetailModal = ({ card, onClose, onUpdate, onDelete }) => {
   
   // Attachment upload
   const [uploading, setUploading] = useState(false);
+  
+  // Activity history
+  const [activities, setActivities] = useState([]);
+  const [loadingActivities, setLoadingActivities] = useState(true);
+  const [showActivities, setShowActivities] = useState(false);
+
+  // Fetch activities on mount
+  useEffect(() => {
+    const fetchActivities = async () => {
+      try {
+        const response = await apiGet(`/cards/${card.card_id}/activities`);
+        if (response.ok) {
+          setActivities(await response.json());
+        }
+      } catch (error) {
+        console.error('Failed to fetch activities:', error);
+      } finally {
+        setLoadingActivities(false);
+      }
+    };
+    fetchActivities();
+  }, [card.card_id]);
 
   const saveCard = async () => {
     setSaving(true);
@@ -544,7 +649,7 @@ export const CardDetailModal = ({ card, onClose, onUpdate, onDelete }) => {
                     <div className="flex items-center gap-2 mb-1">
                       <span className="font-medium text-sm">{comment.user_name}</span>
                       <span className="text-xs text-muted-foreground">
-                        {new Date(comment.created_at).toLocaleString()}
+                        {formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}
                       </span>
                     </div>
                     <p className="text-sm">{comment.content}</p>
@@ -564,6 +669,54 @@ export const CardDetailModal = ({ card, onClose, onUpdate, onDelete }) => {
                   <Send className="w-4 h-4" />
                 </Button>
               </div>
+            </div>
+
+            {/* Activity History */}
+            <div className="space-y-3 pt-4 border-t border-border">
+              <button
+                onClick={() => setShowActivities(!showActivities)}
+                className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                data-testid="toggle-activities-btn"
+              >
+                <History className="w-4 h-4" />
+                Activity ({activities.length})
+                <span className="text-xs">{showActivities ? '▼' : '▶'}</span>
+              </button>
+              
+              {showActivities && (
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {loadingActivities ? (
+                    <div className="text-sm text-muted-foreground text-center py-4">
+                      Loading activity...
+                    </div>
+                  ) : activities.length === 0 ? (
+                    <div className="text-sm text-muted-foreground text-center py-4">
+                      No activity yet
+                    </div>
+                  ) : (
+                    activities.map((activity) => (
+                      <div 
+                        key={activity.activity_id} 
+                        className="flex gap-3 p-2 rounded-lg hover:bg-muted/30 transition-colors"
+                      >
+                        <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-muted-foreground flex-shrink-0 mt-0.5">
+                          {getActivityIcon(activity.action)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm">
+                            <span className="font-medium">{activity.user_name}</span>
+                            {' '}
+                            <span className="text-muted-foreground">{getActivityDescription(activity)}</span>
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {formatDistanceToNow(new Date(activity.created_at), { addSuffix: true })}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

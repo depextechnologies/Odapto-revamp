@@ -23,42 +23,56 @@ Odapto is a production-grade Kanban-based work management SaaS similar to Trello
 - [x] Notification system
 - [x] Template categories and gallery
 - [x] Admin analytics endpoint
-- [x] WebSocket endpoint for real-time collaboration
 - [x] File upload for card attachments and board backgrounds
-- [x] **Teams CRUD API** - Create/update/delete teams, manage members
-- [x] **Board-Team Assignment** - Assign boards to teams
-- [x] **Board Categorization** - personal/team/invited categories
-- [x] **Inviter-only member removal**
-- [x] **Board stats endpoint** - list/card/attachment counts
+- [x] Teams CRUD API - Create/update/delete teams, manage members
+- [x] Board-Team Assignment - Assign boards to teams
+- [x] Board Categorization - personal/team/invited categories
+- [x] Inviter-only member removal
+- [x] Board stats endpoint - list/card/attachment counts
+- [x] **Real-time WebSocket Sync** (NEW)
+  - [x] WebSocket endpoint at `/ws/board/{board_id}`
+  - [x] Card create/update/delete/move broadcasts
+  - [x] List create/update/delete broadcasts
+  - [x] Comment and checklist broadcasts
+  - [x] Member assignment broadcasts
+- [x] **Card Activity Logging** (NEW)
+  - [x] `log_card_activity()` helper function
+  - [x] GET `/api/cards/{card_id}/activities` endpoint
+  - [x] Activities logged: created, updated_title, updated_description, set_due_date, removed_due_date, set_priority, added_label, removed_label, added_member, removed_member, added_checklist_item, completed_checklist_item, added_comment, moved, deleted
 
 ### Frontend (React)
-- [x] **New Odapto Logo**
+- [x] New Odapto Logo
 - [x] Landing page with Odapto branding
 - [x] Login/Register pages with Google OAuth
 - [x] Dashboard with workspace listing and notification bell
-- [x] **Workspace Board Organization** (NEW)
-  - [x] **4 Tabs**: All, Personal, Team, Invited
-  - [x] **Tab counts** - accurately reflect board counts
-  - [x] **Personal tab** - boards created by user without team
-  - [x] **Team tab** - boards assigned to teams with team name badge
-  - [x] **Invited tab** - boards user was invited to
-- [x] **Team Management**
+- [x] Workspace Board Organization
+  - [x] 4 Tabs: All, Personal, Team, Invited
+  - [x] Tab counts - accurately reflect board counts
+  - [x] Team badges on team boards
+- [x] Team Management
   - [x] Create Team button for workspace owners
-  - [x] Create Team dialog with name/description
   - [x] Board creation with team assignment dropdown
-- [x] **Enhanced board cards with stats** - list/card/attachment counts
+- [x] Enhanced board cards with stats
 - [x] Kanban board with drag-drop
-- [x] **Notification bell inside BoardPage**
-- [x] **Card action buttons** - Copy, Move, Delete
+- [x] Notification bell inside BoardPage
+- [x] Card action buttons - Copy, Move, Delete
 - [x] Enhanced card preview with due date colors, priority badges, labels
 - [x] Enhanced card detail modal
 - [x] Invitation Accept Page
 - [x] Template gallery page
 - [x] Admin panel
-- [x] **Enhanced Profile dropdown** - Profile, Integrations, Change Password, Help, Upgrade, Admin, Logout
+- [x] Enhanced Profile dropdown
 - [x] Profile page
-- [x] Real-time notification system
 - [x] Dark/Light theme support
+- [x] **Real-time WebSocket Sync** (NEW)
+  - [x] WebSocket connection on board page load
+  - [x] Auto-reconnect on disconnect (3 second delay)
+  - [x] Handlers for: card_created, card_updated, card_deleted, card_moved, list_created, list_updated, list_deleted, member_joined, new_comment, checklist_item_added, checklist_item_toggled
+- [x] **Card Activity History** (NEW)
+  - [x] Collapsible Activity section in card modal
+  - [x] Activity icons based on action type
+  - [x] Human-readable activity descriptions
+  - [x] Relative timestamps (e.g., "2 minutes ago")
 
 ### Email System
 - [x] Gmail SMTP integration with STARTTLS
@@ -71,18 +85,18 @@ Odapto is a production-grade Kanban-based work management SaaS similar to Trello
 ### P0 (COMPLETED)
 All P0 features completed.
 
-### P1 (High Priority - Next)
+### P1 (COMPLETED)
+- [x] Real-time WebSocket sync
+- [x] Card activity/history log
+
+### P2 (Medium Priority - Next)
 1. **Profile photo editing** - Upload, crop, 2MB limit
 2. **Attachment previews** - Preview, download, set as cover
-3. WebSocket integration for real-time board updates
-4. Card activity/history log
-5. Board filters (by label, due date, member)
-
-### P2 (Medium Priority)
-1. Cloud integrations (Google Drive, OneDrive, Dropbox)
-2. Board export (JSON/CSV)
-3. Card cover images
-4. Keyboard shortcuts
+3. Cloud integrations (Google Drive, OneDrive, Dropbox)
+4. Board export (JSON/CSV)
+5. Card cover images
+6. Keyboard shortcuts
+7. Board filters (by label, due date, member)
 
 ### Future (Mobile & Subscription)
 1. Android Tablet app (Play Store)
@@ -100,6 +114,7 @@ All P0 features completed.
 - **Database**: MongoDB
 - **Auth**: Session tokens + Emergent Google OAuth
 - **Email**: Gmail SMTP (smtp.gmail.com:587 with STARTTLS)
+- **Real-time**: WebSockets (FastAPI)
 - **Storage**: Local file storage (MVP)
 
 ### Key API Endpoints
@@ -113,17 +128,20 @@ All endpoints prefixed with `/api`:
 - `/api/lists/*` - List operations
 - `/api/cards/*` - Card operations
 - `/api/cards/{id}/move` - Move card to another list
+- `/api/cards/{id}/activities` - Get card activity history
 - `/api/invitations/{token}` - Get/accept invitation
 - `/api/templates` - Template gallery
 - `/api/admin/*` - Admin operations
+- `/ws/board/{board_id}` - WebSocket for real-time updates
 
 ### Database Schema
 - **users**: user_id, email, password_hash, name, role, picture
 - **workspaces**: workspace_id, name, description, owner_id, members
 - **teams**: team_id, workspace_id, name, owner_id, members
-- **boards**: board_id, workspace_id, team_id, name, background, members, is_template, category
+- **boards**: board_id, workspace_id, team_id, name, background, members, is_template
 - **lists**: list_id, board_id, name, position
 - **cards**: card_id, list_id, board_id, title, description, due_date, labels, priority, assigned_members, attachments, checklist, comments
+- **card_activities**: activity_id, card_id, board_id, user_id, user_name, action, details, created_at
 - **invitation_tokens**: token, email, invitation_type, target_id, used, expires_at
 - **email_logs**: log_id, to_email, subject, success, error
 
@@ -136,6 +154,5 @@ All endpoints prefixed with `/api`:
 ## Next Tasks
 1. Add profile photo upload with cropping (2MB limit)
 2. Add attachment preview, download, and set-as-cover features
-3. Implement real-time board sync via WebSockets
-4. Add card activity/history log
-5. Add board filters (by label, due date, member)
+3. Add board filters (by label, due date, member)
+4. Implement keyboard shortcuts

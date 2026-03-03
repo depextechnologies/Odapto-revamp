@@ -36,7 +36,9 @@ import {
   Paperclip,
   Copy,
   MoveRight,
-  MoreVertical
+  MoreVertical,
+  Layers,
+  BookTemplate
 } from 'lucide-react';
 
 const LOGO_URL = "/odapto-logo-new.png";
@@ -67,7 +69,7 @@ const getDueDateClass = (dueDate) => {
 
 export default function BoardPage() {
   const { boardId } = useParams();
-  const { user, logout } = useAuth();
+  const { user, logout, isPrivileged, isAdmin } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
@@ -98,6 +100,18 @@ export default function BoardPage() {
   const [moveCardDialogOpen, setMoveCardDialogOpen] = useState(false);
   const [cardToMove, setCardToMove] = useState(null);
   const [targetListId, setTargetListId] = useState('');
+  
+  // Publish as template state
+  const [showPublishDialog, setShowPublishDialog] = useState(false);
+  const [templateCategories, setTemplateCategories] = useState([]);
+  const [publishTemplateName, setPublishTemplateName] = useState('');
+  const [publishTemplateDesc, setPublishTemplateDesc] = useState('');
+  const [publishCategoryId, setPublishCategoryId] = useState('');
+  const [publishing, setPublishing] = useState(false);
+  
+  // WebSocket connection ref
+  const wsRef = useRef(null);
+  const reconnectTimeoutRef = useRef(null);
 
   const fetchBoard = useCallback(async () => {
     try {
@@ -136,6 +150,215 @@ export default function BoardPage() {
     };
     fetchMembers();
   }, [boardId]);
+
+  // WebSocket connection for real-time updates
+  useEffect(() => {
+    if (!boardId || !user) return;
+    
+    const connectWebSocket = () => {
+      // Get WebSocket URL from REACT_APP_BACKEND_URL
+      const backendUrl = process.env.REACT_APP_BACKEND_URL || '';
+      const wsProtocol = backendUrl.startsWith('https') ? 'wss' : 'ws';
+      const wsHost = backendUrl.replace(/^https?:\/\//, '');
+      const wsUrl = `${wsProtocol}://${wsHost}/ws/board/${boardId}`;
+      
+      console.log('Connecting to WebSocket:', wsUrl);
+      
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      
+      ws.onopen = () => {
+        console.log('WebSocket connected');
+      };
+      
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('WebSocket message:', data.type);
+          
+          // Handle different message types
+          switch (data.type) {
+            case 'card_created':
+              setBoard(prev => {
+                if (!prev) return prev;
+                const newLists = prev.lists.map(l => {
+                  if (l.list_id === data.list_id) {
+                    // Check if card already exists to prevent duplicates
+                    const cardExists = l.cards.some(c => c.card_id === data.card.card_id);
+                    if (!cardExists) {
+                      return { ...l, cards: [...l.cards, data.card] };
+                    }
+                  }
+                  return l;
+                });
+                return { ...prev, lists: newLists };
+              });
+              break;
+              
+            case 'card_updated':
+              setBoard(prev => {
+                if (!prev) return prev;
+                const newLists = prev.lists.map(l => ({
+                  ...l,
+                  cards: l.cards.map(c => 
+                    c.card_id === data.card.card_id ? data.card : c
+                  )
+                }));
+                return { ...prev, lists: newLists };
+              });
+              // Also update selected card if it's the one being updated
+              setSelectedCard(prev => 
+                prev?.card_id === data.card.card_id ? data.card : prev
+              );
+              break;
+              
+            case 'card_deleted':
+              setBoard(prev => {
+                if (!prev) return prev;
+                const newLists = prev.lists.map(l => ({
+                  ...l,
+                  cards: l.cards.filter(c => c.card_id !== data.card_id)
+                }));
+                return { ...prev, lists: newLists };
+              });
+              // Close modal if deleted card was selected
+              setSelectedCard(prev => 
+                prev?.card_id === data.card_id ? null : prev
+              );
+              break;
+              
+            case 'card_moved':
+              setBoard(prev => {
+                if (!prev) return prev;
+                let movedCard = null;
+                const newLists = prev.lists.map(l => {
+                  if (l.list_id === data.from_list_id) {
+                    const card = l.cards.find(c => c.card_id === data.card_id);
+                    if (card) movedCard = { ...card, list_id: data.to_list_id };
+                    return { ...l, cards: l.cards.filter(c => c.card_id !== data.card_id) };
+                  }
+                  return l;
+                });
+                return {
+                  ...prev,
+                  lists: newLists.map(l => {
+                    if (l.list_id === data.to_list_id && movedCard) {
+                      return { ...l, cards: [...l.cards, movedCard] };
+                    }
+                    return l;
+                  })
+                };
+              });
+              break;
+              
+            case 'list_created':
+              setBoard(prev => {
+                if (!prev) return prev;
+                const listExists = prev.lists.some(l => l.list_id === data.list.list_id);
+                if (!listExists) {
+                  return { ...prev, lists: [...prev.lists, { ...data.list, cards: [] }] };
+                }
+                return prev;
+              });
+              break;
+              
+            case 'list_updated':
+              setBoard(prev => {
+                if (!prev) return prev;
+                const newLists = prev.lists.map(l => 
+                  l.list_id === data.list.list_id ? { ...l, ...data.list } : l
+                );
+                return { ...prev, lists: newLists };
+              });
+              break;
+              
+            case 'list_deleted':
+              setBoard(prev => {
+                if (!prev) return prev;
+                return { ...prev, lists: prev.lists.filter(l => l.list_id !== data.list_id) };
+              });
+              break;
+              
+            case 'member_joined':
+            case 'member_assigned':
+              // Refresh members
+              apiGet(`/boards/${boardId}/members`).then(res => {
+                if (res.ok) res.json().then(setBoardMembers);
+              });
+              break;
+              
+            case 'new_comment':
+              // Update card comments in real-time
+              setSelectedCard(prev => {
+                if (prev?.card_id === data.card_id) {
+                  return {
+                    ...prev,
+                    comments: [...(prev.comments || []), data.comment]
+                  };
+                }
+                return prev;
+              });
+              break;
+              
+            case 'checklist_item_added':
+            case 'checklist_item_toggled':
+              // Refresh the selected card if it's the affected one
+              if (data.card_id) {
+                apiGet(`/cards/${data.card_id}`).then(res => {
+                  if (res.ok) {
+                    res.json().then(card => {
+                      setSelectedCard(prev => prev?.card_id === card.card_id ? card : prev);
+                      setBoard(prev => {
+                        if (!prev) return prev;
+                        return {
+                          ...prev,
+                          lists: prev.lists.map(l => ({
+                            ...l,
+                            cards: l.cards.map(c => c.card_id === card.card_id ? card : c)
+                          }))
+                        };
+                      });
+                    });
+                  }
+                });
+              }
+              break;
+              
+            default:
+              console.log('Unknown WebSocket message type:', data.type);
+          }
+        } catch (error) {
+          console.error('WebSocket message parse error:', error);
+        }
+      };
+      
+      ws.onclose = () => {
+        console.log('WebSocket disconnected');
+        // Attempt to reconnect after 3 seconds
+        reconnectTimeoutRef.current = setTimeout(() => {
+          if (boardId && user) {
+            connectWebSocket();
+          }
+        }, 3000);
+      };
+      
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
+    };
+    
+    connectWebSocket();
+    
+    // Cleanup on unmount
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+    };
+  }, [boardId, user]);
 
   // Invite member
   const inviteMember = async (e) => {
@@ -469,6 +692,55 @@ export default function BoardPage() {
     setMoveCardDialogOpen(true);
   };
 
+  // Fetch template categories
+  const fetchTemplateCategories = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/template-categories`);
+      if (response.ok) {
+        setTemplateCategories(await response.json());
+      }
+    } catch (error) {
+      console.error('Failed to fetch template categories:', error);
+    }
+  };
+
+  // Open publish dialog
+  const openPublishDialog = () => {
+    setPublishTemplateName(board?.name || '');
+    setPublishTemplateDesc(board?.description || '');
+    setPublishCategoryId('');
+    fetchTemplateCategories();
+    setShowPublishDialog(true);
+  };
+
+  // Publish board as template
+  const publishAsTemplate = async (e) => {
+    e.preventDefault();
+    if (!publishTemplateName.trim() || !publishCategoryId) return;
+
+    setPublishing(true);
+    try {
+      const response = await apiPost(`/boards/${boardId}/publish-template`, {
+        template_name: publishTemplateName,
+        template_description: publishTemplateDesc || null,
+        category_id: publishCategoryId
+      });
+
+      if (response.ok) {
+        toast.success('Board published as template!');
+        setShowPublishDialog(false);
+      } else {
+        const error = await response.json();
+        toast.error(error.detail || 'Failed to publish template');
+      }
+    } catch (error) {
+      console.error('Failed to publish template:', error);
+      toast.error('Failed to publish template');
+    } finally {
+      setPublishing(false);
+    }
+  };
+
   const handleLogout = async () => {
     await logout();
     navigate('/');
@@ -653,6 +925,18 @@ export default function BoardPage() {
                   </div>
                 </PopoverContent>
               </Popover>
+
+              {/* Publish as Template - Only for privileged/admin users who own the board */}
+              {(isPrivileged || isAdmin) && board?.created_by === user?.user_id && (
+                <button
+                  onClick={openPublishDialog}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors text-sm"
+                  data-testid="publish-template-btn"
+                >
+                  <Layers className="w-4 h-4" />
+                  Publish
+                </button>
+              )}
 
               {/* Notification Bell */}
               <NotificationBell />
@@ -1125,6 +1409,77 @@ export default function BoardPage() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Publish as Template Dialog */}
+      <Dialog open={showPublishDialog} onOpenChange={setShowPublishDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Layers className="w-5 h-5 text-odapto-orange" />
+              Publish as Template
+            </DialogTitle>
+            <DialogDescription>
+              Share this board structure with the community. Lists and cards will be copied as a reusable template.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={publishAsTemplate} className="space-y-4 mt-4">
+            <div className="space-y-2">
+              <Label htmlFor="template-name">Template Name</Label>
+              <Input
+                id="template-name"
+                placeholder="e.g. Project Kickoff"
+                value={publishTemplateName}
+                onChange={(e) => setPublishTemplateName(e.target.value)}
+                required
+                data-testid="template-name-input"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="template-desc">Description (optional)</Label>
+              <Input
+                id="template-desc"
+                placeholder="A brief description of when to use this template"
+                value={publishTemplateDesc}
+                onChange={(e) => setPublishTemplateDesc(e.target.value)}
+                data-testid="template-desc-input"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Category</Label>
+              <Select value={publishCategoryId} onValueChange={setPublishCategoryId}>
+                <SelectTrigger data-testid="template-category-select">
+                  <SelectValue placeholder="Select a category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {templateCategories.map((cat) => (
+                    <SelectItem key={cat.category_id} value={cat.category_id}>
+                      {cat.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {templateCategories.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No categories available. Ask an admin to create template categories.
+                </p>
+              )}
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="outline" onClick={() => setShowPublishDialog(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="bg-odapto-orange hover:bg-odapto-orange-hover text-white"
+                disabled={publishing || !publishCategoryId || !publishTemplateName.trim()}
+                data-testid="publish-template-submit-btn"
+              >
+                {publishing ? 'Publishing...' : 'Publish Template'}
+              </Button>
+            </div>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

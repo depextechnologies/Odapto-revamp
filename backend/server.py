@@ -263,6 +263,21 @@ class TeamMemberRequest(BaseModel):
     user_id: str
     role: str = "member"
 
+# Card Activity Log model
+class CardActivity(BaseModel):
+    activity_id: str
+    card_id: str
+    board_id: str
+    user_id: str
+    user_name: str
+    user_picture: Optional[str] = None
+    action: str  # created, updated_title, updated_description, added_label, removed_label, 
+                 # set_due_date, removed_due_date, set_priority, added_member, removed_member,
+                 # added_checklist_item, completed_checklist_item, added_comment, added_attachment,
+                 # moved, deleted
+    details: Optional[Dict[str, Any]] = None  # Additional context like old/new values
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
 # Pending Invite model for non-registered users
 class PendingInvite(BaseModel):
     invite_id: str
@@ -351,6 +366,36 @@ async def require_privileged(user: User = Depends(get_current_user)) -> User:
     if user.role not in [UserRole.ADMIN, UserRole.PRIVILEGED]:
         raise HTTPException(status_code=403, detail="Privileged access required")
     return user
+
+# Card Activity Logger Helper
+async def log_card_activity(
+    card_id: str,
+    board_id: str,
+    user: User,
+    action: str,
+    details: Optional[Dict[str, Any]] = None
+):
+    """Log a card activity and broadcast via WebSocket"""
+    activity = {
+        "activity_id": f"act_{uuid.uuid4().hex[:12]}",
+        "card_id": card_id,
+        "board_id": board_id,
+        "user_id": user.user_id,
+        "user_name": user.name,
+        "user_picture": user.picture,
+        "action": action,
+        "details": details or {},
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.card_activities.insert_one(activity)
+    
+    # Broadcast the activity via WebSocket
+    await manager.broadcast(board_id, {
+        "type": "card_activity",
+        "activity": {k: v for k, v in activity.items() if k != "_id"}
+    })
+    
+    return activity
 
 # ============== AUTH ROUTES ==============
 
@@ -885,7 +930,7 @@ async def add_workspace_member(workspace_id: str, request: Request, user: User =
     await db.invitation_tokens.insert_one(invitation_doc)
     
     # Generate invitation link
-    frontend_url = os.environ.get('FRONTEND_URL', 'https://collab-cards.preview.emergentagent.com')
+    frontend_url = os.environ.get('FRONTEND_URL', 'https://task-sync-hub-16.preview.emergentagent.com')
     invitation_link = f"{frontend_url}/invite/accept?token={token}"
     
     # Send email
@@ -1378,7 +1423,7 @@ async def invite_board_member(board_id: str, data: BoardInviteRequest, user: Use
     await db.invitation_tokens.insert_one(invitation_doc)
     
     # Generate invitation link
-    frontend_url = os.environ.get('FRONTEND_URL', 'https://collab-cards.preview.emergentagent.com')
+    frontend_url = os.environ.get('FRONTEND_URL', 'https://task-sync-hub-16.preview.emergentagent.com')
     invitation_link = f"{frontend_url}/invite/accept?token={token}"
     
     # Send email
@@ -1565,6 +1610,13 @@ async def create_list(board_id: str, data: ListCreate, user: User = Depends(get_
     }
     await db.lists.insert_one(list_doc)
     list_doc.pop("_id", None)
+    
+    # Broadcast list creation via WebSocket
+    await manager.broadcast(board_id, {
+        "type": "list_created",
+        "list": list_doc
+    })
+    
     return list_doc
 
 @api_router.patch("/lists/{list_id}")
@@ -1584,6 +1636,13 @@ async def update_list(list_id: str, data: ListUpdate, user: User = Depends(get_c
     update_data = {k: v for k, v in data.model_dump().items() if v is not None}
     if update_data:
         await db.lists.update_one({"list_id": list_id}, {"$set": update_data})
+        
+        # Broadcast list update via WebSocket
+        updated_list = await db.lists.find_one({"list_id": list_id}, {"_id": 0})
+        await manager.broadcast(lst["board_id"], {
+            "type": "list_updated",
+            "list": updated_list
+        })
     
     return {"message": "List updated"}
 
@@ -1603,6 +1662,12 @@ async def delete_list(list_id: str, user: User = Depends(get_current_user)):
     
     await db.cards.delete_many({"list_id": list_id})
     await db.lists.delete_one({"list_id": list_id})
+    
+    # Broadcast list deletion via WebSocket
+    await manager.broadcast(lst["board_id"], {
+        "type": "list_deleted",
+        "list_id": list_id
+    })
     
     return {"message": "List deleted"}
 
@@ -1648,6 +1713,23 @@ async def create_card(list_id: str, data: CardCreate, user: User = Depends(get_c
     }
     await db.cards.insert_one(card_doc)
     card_doc.pop("_id", None)
+    
+    # Log activity
+    await log_card_activity(
+        card_id=card_id,
+        board_id=lst["board_id"],
+        user=user,
+        action="created",
+        details={"title": data.title, "list_name": lst.get("name")}
+    )
+    
+    # Broadcast card creation via WebSocket
+    await manager.broadcast(lst["board_id"], {
+        "type": "card_created",
+        "card": card_doc,
+        "list_id": list_id
+    })
+    
     return card_doc
 
 @api_router.get("/cards/{card_id}")
@@ -1682,19 +1764,60 @@ async def update_card(card_id: str, data: CardUpdate, user: User = Depends(get_c
     
     update_data = {}
     data_dict = data.model_dump(exclude_unset=True)
+    activities = []
+    
     for k, v in data_dict.items():
         if k == "due_date":
             if v:
                 update_data[k] = v.isoformat() if hasattr(v, 'isoformat') else v
+                activities.append(("set_due_date", {"due_date": update_data[k]}))
             else:
-                update_data[k] = None  # Allow clearing due date
+                update_data[k] = None
+                if card.get("due_date"):
+                    activities.append(("removed_due_date", {"old_due_date": card.get("due_date")}))
         elif k == "priority":
-            update_data[k] = v  # Allow setting to None or empty string
+            update_data[k] = v
+            if v != card.get("priority"):
+                activities.append(("set_priority", {"priority": v, "old_priority": card.get("priority")}))
+        elif k == "title" and v is not None and v != card.get("title"):
+            update_data[k] = v
+            activities.append(("updated_title", {"title": v, "old_title": card.get("title")}))
+        elif k == "description" and v is not None:
+            update_data[k] = v
+            activities.append(("updated_description", {}))
+        elif k == "labels" and v is not None:
+            update_data[k] = v
+            old_labels = card.get("labels", [])
+            new_labels = v
+            added = [l for l in new_labels if l not in old_labels]
+            removed = [l for l in old_labels if l not in new_labels]
+            if added:
+                activities.append(("added_label", {"labels": added}))
+            if removed:
+                activities.append(("removed_label", {"labels": removed}))
         elif v is not None:
             update_data[k] = v
     
     if update_data:
         await db.cards.update_one({"card_id": card_id}, {"$set": update_data})
+        
+        # Log activities
+        for action, details in activities:
+            await log_card_activity(
+                card_id=card_id,
+                board_id=card["board_id"],
+                user=user,
+                action=action,
+                details=details
+            )
+        
+        # Broadcast card update via WebSocket
+        updated_card = await db.cards.find_one({"card_id": card_id}, {"_id": 0})
+        await manager.broadcast(card["board_id"], {
+            "type": "card_updated",
+            "card": updated_card,
+            "list_id": card["list_id"]
+        })
     
     return {"message": "Card updated"}
 
@@ -1712,7 +1835,24 @@ async def delete_card(card_id: str, user: User = Depends(get_current_user)):
     if not workspace:
         raise HTTPException(status_code=403, detail="Access denied")
     
+    # Log activity before deletion
+    await log_card_activity(
+        card_id=card_id,
+        board_id=card["board_id"],
+        user=user,
+        action="deleted",
+        details={"title": card.get("title")}
+    )
+    
     await db.cards.delete_one({"card_id": card_id})
+    
+    # Broadcast card deletion via WebSocket
+    await manager.broadcast(card["board_id"], {
+        "type": "card_deleted",
+        "card_id": card_id,
+        "list_id": card["list_id"]
+    })
+    
     return {"message": "Card deleted"}
 
 # Move card between lists
@@ -1753,12 +1893,57 @@ async def move_card(card_id: str, request: Request, user: User = Depends(get_cur
     )
     
     # Move card
+    old_list = await db.lists.find_one({"list_id": card["list_id"]}, {"name": 1})
+    
     await db.cards.update_one(
         {"card_id": card_id},
         {"$set": {"list_id": target_list_id, "position": target_position}}
     )
     
+    # Log activity for card move
+    await log_card_activity(
+        card_id=card_id,
+        board_id=card["board_id"],
+        user=user,
+        action="moved",
+        details={
+            "from_list": old_list.get("name") if old_list else None,
+            "to_list": target_list.get("name")
+        }
+    )
+    
+    # Broadcast card move via WebSocket
+    await manager.broadcast(card["board_id"], {
+        "type": "card_moved",
+        "card_id": card_id,
+        "from_list_id": card["list_id"],
+        "to_list_id": target_list_id,
+        "position": target_position
+    })
+    
     return {"message": "Card moved"}
+
+@api_router.get("/cards/{card_id}/activities")
+async def get_card_activities(card_id: str, user: User = Depends(get_current_user), limit: int = 50):
+    """Get activity history for a card"""
+    card = await db.cards.find_one({"card_id": card_id}, {"_id": 0})
+    if not card:
+        raise HTTPException(status_code=404, detail="Card not found")
+    
+    board = await db.boards.find_one({"board_id": card["board_id"]}, {"_id": 0})
+    workspace = await db.workspaces.find_one(
+        {"workspace_id": board["workspace_id"], "members.user_id": user.user_id},
+        {"_id": 0}
+    )
+    if not workspace:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    activities = await db.card_activities.find(
+        {"card_id": card_id},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(limit).to_list(limit)
+    
+    return activities
 
 # Card member invitation
 @api_router.post("/cards/{card_id}/invite")
@@ -1814,6 +1999,15 @@ async def invite_card_member(card_id: str, data: CardInviteRequest, user: User =
             "member": new_member
         })
         
+        # Log activity
+        await log_card_activity(
+            card_id=card_id,
+            board_id=board["board_id"],
+            user=user,
+            action="added_member",
+            details={"member_name": invite_user["name"]}
+        )
+        
         return {"message": f"Added {invite_user['name']} to the card", "member": new_member, "pending": False}
     
     # User doesn't exist - create invitation token and send email
@@ -1850,7 +2044,7 @@ async def invite_card_member(card_id: str, data: CardInviteRequest, user: User =
     await db.pending_invites.insert_one(pending_invite)
     
     # Generate invitation link
-    frontend_url = os.environ.get('FRONTEND_URL', 'https://collab-cards.preview.emergentagent.com')
+    frontend_url = os.environ.get('FRONTEND_URL', 'https://task-sync-hub-16.preview.emergentagent.com')
     invitation_link = f"{frontend_url}/invite/accept?token={token}"
     
     # Send email
@@ -1970,6 +2164,15 @@ async def add_comment(card_id: str, data: CommentCreate, user: User = Depends(ge
         "comment": comment
     })
     
+    # Log activity
+    await log_card_activity(
+        card_id=card_id,
+        board_id=board["board_id"],
+        user=user,
+        action="added_comment",
+        details={"comment_preview": data.content[:100]}
+    )
+    
     return comment
 
 # Card checklist
@@ -1998,6 +2201,22 @@ async def add_checklist_item(card_id: str, data: ChecklistItemCreate, user: User
         {"$push": {"checklist": item}}
     )
     
+    # Log activity
+    await log_card_activity(
+        card_id=card_id,
+        board_id=board["board_id"],
+        user=user,
+        action="added_checklist_item",
+        details={"item_text": data.text}
+    )
+    
+    # Broadcast via WebSocket
+    await manager.broadcast(board["board_id"], {
+        "type": "checklist_item_added",
+        "card_id": card_id,
+        "item": item
+    })
+    
     return item
 
 @api_router.patch("/cards/{card_id}/checklist/{item_id}")
@@ -2017,10 +2236,30 @@ async def toggle_checklist_item(card_id: str, item_id: str, user: User = Depends
     # Find and toggle the item
     for item in card.get("checklist", []):
         if item["item_id"] == item_id:
+            new_completed = not item["completed"]
             await db.cards.update_one(
                 {"card_id": card_id, "checklist.item_id": item_id},
-                {"$set": {"checklist.$.completed": not item["completed"]}}
+                {"$set": {"checklist.$.completed": new_completed}}
             )
+            
+            # Log activity
+            action = "completed_checklist_item" if new_completed else "uncompleted_checklist_item"
+            await log_card_activity(
+                card_id=card_id,
+                board_id=board["board_id"],
+                user=user,
+                action=action,
+                details={"item_text": item.get("text")}
+            )
+            
+            # Broadcast via WebSocket
+            await manager.broadcast(board["board_id"], {
+                "type": "checklist_item_toggled",
+                "card_id": card_id,
+                "item_id": item_id,
+                "completed": new_completed
+            })
+            
             return {"message": "Checklist item toggled"}
     
     raise HTTPException(status_code=404, detail="Checklist item not found")
@@ -2117,7 +2356,7 @@ async def get_templates(category_id: Optional[str] = None, search: Optional[str]
         search_lower = search.lower()
         templates = [t for t in templates if search_lower in t.get("template_name", "").lower() or search_lower in t.get("template_description", "").lower()]
     
-    # Enrich with category info and creator info
+    # Enrich with category info, creator info, and stats
     for template in templates:
         if template.get("template_category_id"):
             category = await db.template_categories.find_one(
@@ -2131,6 +2370,16 @@ async def get_templates(category_id: Optional[str] = None, search: Optional[str]
             {"_id": 0, "password_hash": 0}
         )
         template["creator"] = creator
+        
+        # Add list and card counts
+        list_count = await db.lists.count_documents({"board_id": template["board_id"]})
+        card_count = await db.cards.count_documents({"board_id": template["board_id"]})
+        template["list_count"] = list_count
+        template["card_count"] = card_count
+        
+        # Add usage count (how many boards created from this template)
+        usage_count = await db.boards.count_documents({"created_from_template": template["board_id"]})
+        template["usage_count"] = usage_count
     
     return templates
 
