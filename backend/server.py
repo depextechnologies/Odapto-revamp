@@ -241,6 +241,28 @@ class CommentCreate(BaseModel):
 class ChecklistItemCreate(BaseModel):
     text: str
 
+# Team model
+class Team(BaseModel):
+    team_id: str
+    name: str
+    description: Optional[str] = None
+    owner_id: str
+    workspace_id: str
+    members: List[Dict[str, str]] = []  # [{user_id, role}]
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class TeamCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+class TeamUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+class TeamMemberRequest(BaseModel):
+    user_id: str
+    role: str = "member"
+
 # Pending Invite model for non-registered users
 class PendingInvite(BaseModel):
     invite_id: str
@@ -923,6 +945,201 @@ async def remove_workspace_member(workspace_id: str, member_user_id: str, user: 
     
     return {"message": "Member removed"}
 
+# ============== TEAM ROUTES ==============
+
+@api_router.post("/workspaces/{workspace_id}/teams")
+async def create_team(workspace_id: str, data: TeamCreate, user: User = Depends(get_current_user)):
+    """Create a new team within a workspace - only workspace owner"""
+    workspace = await db.workspaces.find_one({"workspace_id": workspace_id}, {"_id": 0})
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    
+    if workspace["owner_id"] != user.user_id:
+        raise HTTPException(status_code=403, detail="Only workspace owner can create teams")
+    
+    team_id = f"team_{uuid.uuid4().hex[:12]}"
+    team_doc = {
+        "team_id": team_id,
+        "workspace_id": workspace_id,
+        "name": data.name,
+        "description": data.description,
+        "owner_id": user.user_id,
+        "members": [{"user_id": user.user_id, "role": "owner"}],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.teams.insert_one(team_doc)
+    team_doc.pop("_id", None)
+    return team_doc
+
+@api_router.get("/workspaces/{workspace_id}/teams")
+async def get_workspace_teams(workspace_id: str, user: User = Depends(get_current_user)):
+    """Get all teams in a workspace"""
+    workspace = await db.workspaces.find_one(
+        {"workspace_id": workspace_id, "members.user_id": user.user_id},
+        {"_id": 0}
+    )
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    
+    teams = await db.teams.find({"workspace_id": workspace_id}, {"_id": 0}).to_list(100)
+    
+    # Add member details
+    for team in teams:
+        members_with_info = []
+        for member in team.get("members", []):
+            user_info = await db.users.find_one(
+                {"user_id": member["user_id"]},
+                {"_id": 0, "password_hash": 0}
+            )
+            if user_info:
+                members_with_info.append({**member, **user_info})
+        team["members"] = members_with_info
+    
+    return teams
+
+@api_router.get("/teams/{team_id}")
+async def get_team(team_id: str, user: User = Depends(get_current_user)):
+    """Get team details"""
+    team = await db.teams.find_one({"team_id": team_id}, {"_id": 0})
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    
+    # Get member details
+    members_with_info = []
+    for member in team.get("members", []):
+        user_info = await db.users.find_one(
+            {"user_id": member["user_id"]},
+            {"_id": 0, "password_hash": 0}
+        )
+        if user_info:
+            members_with_info.append({**member, **user_info})
+    team["members"] = members_with_info
+    
+    return team
+
+@api_router.patch("/teams/{team_id}")
+async def update_team(team_id: str, data: TeamUpdate, user: User = Depends(get_current_user)):
+    """Update team details"""
+    team = await db.teams.find_one({"team_id": team_id}, {"_id": 0})
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    
+    if team["owner_id"] != user.user_id:
+        raise HTTPException(status_code=403, detail="Only team owner can update team")
+    
+    update_data = {k: v for k, v in data.model_dump().items() if v is not None}
+    if update_data:
+        await db.teams.update_one({"team_id": team_id}, {"$set": update_data})
+    
+    return {"message": "Team updated"}
+
+@api_router.delete("/teams/{team_id}")
+async def delete_team(team_id: str, user: User = Depends(get_current_user)):
+    """Delete a team"""
+    team = await db.teams.find_one({"team_id": team_id}, {"_id": 0})
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    
+    if team["owner_id"] != user.user_id:
+        raise HTTPException(status_code=403, detail="Only team owner can delete team")
+    
+    # Remove team assignment from all boards
+    await db.boards.update_many(
+        {"team_id": team_id},
+        {"$set": {"team_id": None}}
+    )
+    
+    await db.teams.delete_one({"team_id": team_id})
+    return {"message": "Team deleted"}
+
+@api_router.post("/teams/{team_id}/members")
+async def add_team_member(team_id: str, data: TeamMemberRequest, user: User = Depends(get_current_user)):
+    """Add a member to a team"""
+    team = await db.teams.find_one({"team_id": team_id}, {"_id": 0})
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    
+    if team["owner_id"] != user.user_id:
+        raise HTTPException(status_code=403, detail="Only team owner can add members")
+    
+    # Check if already member
+    if any(m["user_id"] == data.user_id for m in team.get("members", [])):
+        raise HTTPException(status_code=400, detail="User is already a team member")
+    
+    await db.teams.update_one(
+        {"team_id": team_id},
+        {"$push": {"members": {"user_id": data.user_id, "role": data.role}}}
+    )
+    
+    return {"message": "Member added"}
+
+@api_router.delete("/teams/{team_id}/members/{member_user_id}")
+async def remove_team_member(team_id: str, member_user_id: str, user: User = Depends(get_current_user)):
+    """Remove a member from a team"""
+    team = await db.teams.find_one({"team_id": team_id}, {"_id": 0})
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    
+    if team["owner_id"] != user.user_id:
+        raise HTTPException(status_code=403, detail="Only team owner can remove members")
+    
+    if member_user_id == team["owner_id"]:
+        raise HTTPException(status_code=400, detail="Cannot remove team owner")
+    
+    await db.teams.update_one(
+        {"team_id": team_id},
+        {"$pull": {"members": {"user_id": member_user_id}}}
+    )
+    
+    return {"message": "Member removed"}
+
+@api_router.patch("/boards/{board_id}/team")
+async def assign_board_to_team(board_id: str, request: Request, user: User = Depends(get_current_user)):
+    """Assign a board to a team (one board can only be in one team)"""
+    body = await request.json()
+    team_id = body.get("team_id")
+    
+    board = await db.boards.find_one({"board_id": board_id}, {"_id": 0})
+    if not board:
+        raise HTTPException(status_code=404, detail="Board not found")
+    
+    if board["created_by"] != user.user_id:
+        raise HTTPException(status_code=403, detail="Only board owner can assign team")
+    
+    if team_id:
+        team = await db.teams.find_one({"team_id": team_id}, {"_id": 0})
+        if not team:
+            raise HTTPException(status_code=404, detail="Team not found")
+        
+        # Verify team belongs to same workspace
+        if team["workspace_id"] != board["workspace_id"]:
+            raise HTTPException(status_code=400, detail="Team must be in the same workspace")
+    
+    await db.boards.update_one(
+        {"board_id": board_id},
+        {"$set": {"team_id": team_id}}
+    )
+    
+    return {"message": "Board team assignment updated"}
+
+@api_router.get("/teams/{team_id}/boards")
+async def get_team_boards(team_id: str, user: User = Depends(get_current_user)):
+    """Get all boards assigned to a team"""
+    team = await db.teams.find_one({"team_id": team_id}, {"_id": 0})
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    
+    # Check if user is team member
+    if not any(m["user_id"] == user.user_id for m in team.get("members", [])):
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    boards = await db.boards.find(
+        {"team_id": team_id, "is_template": False},
+        {"_id": 0}
+    ).to_list(100)
+    
+    return boards
+
 # ============== BOARD ROUTES ==============
 
 @api_router.post("/workspaces/{workspace_id}/boards")
@@ -943,6 +1160,7 @@ async def create_board(workspace_id: str, data: BoardCreate, user: User = Depend
         "background": data.background or "#3A8B84",
         "background_type": data.background_type or "color",
         "members": [{"user_id": user.user_id, "role": "owner", "joined_at": datetime.now(timezone.utc).isoformat()}],
+        "team_id": None,  # Board can be assigned to a team
         "is_template": False,
         "template_name": None,
         "template_description": None,
@@ -982,6 +1200,18 @@ async def get_boards(workspace_id: str, user: User = Depends(get_current_user)):
         {"workspace_id": workspace_id, "is_template": False},
         {"_id": 0}
     ).to_list(100)
+    
+    # Add summary counts for each board
+    for board in boards:
+        list_count = await db.lists.count_documents({"board_id": board["board_id"]})
+        cards = await db.cards.find({"board_id": board["board_id"]}, {"attachments": 1}).to_list(1000)
+        card_count = len(cards)
+        attachment_count = sum(len(card.get("attachments", [])) for card in cards)
+        
+        board["list_count"] = list_count
+        board["card_count"] = card_count
+        board["attachment_count"] = attachment_count
+    
     return boards
 
 @api_router.get("/boards/{board_id}")
@@ -1070,10 +1300,11 @@ async def invite_board_member(board_id: str, data: BoardInviteRequest, user: Use
         if any(m.get("user_id") == invite_user["user_id"] for m in board.get("members", [])):
             raise HTTPException(status_code=400, detail="User is already a board member")
         
-        # Add to board members directly
+        # Add to board members directly - track invited_by
         new_member = {
             "user_id": invite_user["user_id"],
             "role": data.role,
+            "invited_by": user.user_id,
             "joined_at": datetime.now(timezone.utc).isoformat()
         }
         await db.boards.update_one(
@@ -1168,18 +1399,31 @@ async def invite_board_member(board_id: str, data: BoardInviteRequest, user: Use
 
 @api_router.delete("/boards/{board_id}/members/{member_user_id}")
 async def remove_board_member(board_id: str, member_user_id: str, user: User = Depends(get_current_user)):
-    """Remove a member from a board"""
+    """Remove a member from a board - only inviter or board owner can remove"""
     board = await db.boards.find_one({"board_id": board_id}, {"_id": 0})
     if not board:
         raise HTTPException(status_code=404, detail="Board not found")
     
-    # Check if user is board owner
-    if board.get("created_by") != user.user_id:
-        raise HTTPException(status_code=403, detail="Only board owner can remove members")
+    # Find the member to check who invited them
+    member_to_remove = None
+    for m in board.get("members", []):
+        if m.get("user_id") == member_user_id:
+            member_to_remove = m
+            break
+    
+    if not member_to_remove:
+        raise HTTPException(status_code=404, detail="Member not found")
     
     # Can't remove the owner
     if member_user_id == board.get("created_by"):
         raise HTTPException(status_code=400, detail="Cannot remove the board owner")
+    
+    # Only allow: board owner OR the person who invited them
+    is_owner = board.get("created_by") == user.user_id
+    is_inviter = member_to_remove.get("invited_by") == user.user_id
+    
+    if not is_owner and not is_inviter:
+        raise HTTPException(status_code=403, detail="Only the board owner or the person who invited this member can remove them")
     
     await db.boards.update_one(
         {"board_id": board_id},

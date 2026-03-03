@@ -8,7 +8,7 @@ import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
 import { Moon, Sun, Eye, EyeOff } from 'lucide-react';
 
-const LOGO_URL = "https://customer-assets.emergentagent.com/job_27d48b6b-dd80-4045-b25e-4aeef47ff911/artifacts/8ilbqloe_download.png";
+const LOGO_URL = "/odapto-logo-new.png";
 
 export default function RegisterPage() {
   const [name, setName] = useState('');

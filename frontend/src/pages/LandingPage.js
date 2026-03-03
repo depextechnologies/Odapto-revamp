@@ -17,7 +17,7 @@ import {
   Clock
 } from 'lucide-react';
 
-const LOGO_URL = "https://customer-assets.emergentagent.com/job_27d48b6b-dd80-4045-b25e-4aeef47ff911/artifacts/8ilbqloe_download.png";
+const LOGO_URL = "/odapto-logo-new.png";
 const HERO_IMAGE = "https://images.unsplash.com/photo-1758691736975-9f7f643d178e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBvZmZpY2UlMjB0ZWFtJTIwY29sbGFib3JhdGlvbiUyMGRpdmVyc2V8ZW58MHx8fHwxNzcyMTk5MDAxfDA&ixlib=rb-4.1.0&q=85&w=800";
 
 const fadeInUp = {

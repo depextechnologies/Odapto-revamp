@@ -22,10 +22,13 @@ import {
   Settings,
   Users,
   ChevronRight,
-  MoreVertical
+  MoreVertical,
+  List,
+  Square,
+  Paperclip
 } from 'lucide-react';
 
-const LOGO_URL = "https://customer-assets.emergentagent.com/job_27d48b6b-dd80-4045-b25e-4aeef47ff911/artifacts/8ilbqloe_download.png";
+const LOGO_URL = "/odapto-logo-new.png";
 
 const BOARD_COLORS = [
   '#3A8B84', '#E67E4C', '#6366F1', '#EC4899', '#14B8A6', '#F59E0B', '#8B5CF6', '#06B6D4'
@@ -304,12 +307,34 @@ export default function WorkspacePage() {
                   data-testid={`board-card-${board.board_id}`}
                 >
                   <div 
-                    className="h-32 rounded-xl p-4 flex flex-col justify-between text-white hover:opacity-90 transition-opacity relative overflow-hidden"
-                    style={{ backgroundColor: board.background || '#3A8B84' }}
+                    className="h-36 rounded-xl p-4 flex flex-col justify-between text-white hover:opacity-90 transition-opacity relative overflow-hidden"
+                    style={{ 
+                      backgroundColor: board.background || '#3A8B84',
+                      backgroundImage: board.background_type === 'image' && board.background_image 
+                        ? `url(${board.background_image})` 
+                        : 'none',
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center'
+                    }}
                   >
-                    <div className="absolute inset-0 bg-black/10" />
+                    <div className="absolute inset-0 bg-black/30" />
                     <div className="relative z-10">
-                      <h3 className="font-heading font-semibold text-lg">{board.name}</h3>
+                      <h3 className="font-heading font-semibold text-lg drop-shadow-md">{board.name}</h3>
+                    </div>
+                    {/* Board Stats */}
+                    <div className="relative z-10 flex items-center gap-3 text-white/90 text-sm">
+                      <span className="flex items-center gap-1" title="Lists">
+                        <List className="w-3.5 h-3.5" />
+                        {board.list_count || 0}
+                      </span>
+                      <span className="flex items-center gap-1" title="Cards">
+                        <Square className="w-3.5 h-3.5" />
+                        {board.card_count || 0}
+                      </span>
+                      <span className="flex items-center gap-1" title="Attachments">
+                        <Paperclip className="w-3.5 h-3.5" />
+                        {board.attachment_count || 0}
+                      </span>
                     </div>
                   </div>
                 </Link>

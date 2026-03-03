@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
-const LOGO_URL = "https://customer-assets.emergentagent.com/job_27d48b6b-dd80-4045-b25e-4aeef47ff911/artifacts/8ilbqloe_download.png";
+const LOGO_URL = "/odapto-logo-new.png";
 
 export default function TemplatesPage() {
   const { user, isAuthenticated } = useAuth();

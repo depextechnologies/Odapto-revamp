@@ -24,10 +24,14 @@ import {
   Shield,
   Folder,
   Clock,
-  ChevronRight
+  ChevronRight,
+  Link2,
+  KeyRound,
+  HelpCircle,
+  Sparkles
 } from 'lucide-react';
 
-const LOGO_URL = "https://customer-assets.emergentagent.com/job_27d48b6b-dd80-4045-b25e-4aeef47ff911/artifacts/8ilbqloe_download.png";
+const LOGO_URL = "/odapto-logo-new.png";
 
 export default function DashboardPage() {
   const { user, logout, isAdmin } = useAuth();
@@ -172,13 +176,41 @@ export default function DashboardPage() {
                       Profile
                     </Link>
                   </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link to="/profile?tab=integrations" className="cursor-pointer">
+                      <Link2 className="w-4 h-4 mr-2" />
+                      Integrations
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link to="/profile?tab=password" className="cursor-pointer">
+                      <KeyRound className="w-4 h-4 mr-2" />
+                      Change Password
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link to="/help" className="cursor-pointer">
+                      <HelpCircle className="w-4 h-4 mr-2" />
+                      Help
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link to="/upgrade" className="cursor-pointer text-odapto-orange">
+                      <Sparkles className="w-4 h-4 mr-2" />
+                      Upgrade Plan
+                    </Link>
+                  </DropdownMenuItem>
                   {isAdmin && (
-                    <DropdownMenuItem asChild>
-                      <Link to="/admin" className="cursor-pointer">
-                        <Shield className="w-4 h-4 mr-2" />
-                        Admin Panel
-                      </Link>
-                    </DropdownMenuItem>
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem asChild>
+                        <Link to="/admin" className="cursor-pointer">
+                          <Shield className="w-4 h-4 mr-2" />
+                          Admin Panel
+                        </Link>
+                      </DropdownMenuItem>
+                    </>
                   )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleLogout} className="text-destructive cursor-pointer" data-testid="logout-btn">

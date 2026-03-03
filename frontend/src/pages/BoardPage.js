@@ -10,9 +10,11 @@ import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
 import { apiGet, apiPost, apiPatch, apiDelete, apiCall } from '../utils/api';
 import CardDetailModal from '../components/CardDetailModal';
+import NotificationBell from '../components/NotificationBell';
 import { isToday, isPast, isFuture } from 'date-fns';
 import { 
   Plus, 
@@ -31,10 +33,13 @@ import {
   Image,
   Palette,
   Bell,
-  Paperclip
+  Paperclip,
+  Copy,
+  MoveRight,
+  MoreVertical
 } from 'lucide-react';
 
-const LOGO_URL = "https://customer-assets.emergentagent.com/job_27d48b6b-dd80-4045-b25e-4aeef47ff911/artifacts/8ilbqloe_download.png";
+const LOGO_URL = "/odapto-logo-new.png";
 const API_BASE = process.env.REACT_APP_BACKEND_URL;
 
 const BOARD_COLORS = [
@@ -88,6 +93,11 @@ export default function BoardPage() {
   // Background customization
   const [showBackgroundPicker, setShowBackgroundPicker] = useState(false);
   const [uploadingBackground, setUploadingBackground] = useState(false);
+  
+  // Card actions state
+  const [moveCardDialogOpen, setMoveCardDialogOpen] = useState(false);
+  const [cardToMove, setCardToMove] = useState(null);
+  const [targetListId, setTargetListId] = useState('');
 
   const fetchBoard = useCallback(async () => {
     try {
@@ -356,6 +366,109 @@ export default function BoardPage() {
     }
   };
 
+  // Copy card within the same list
+  const copyCard = async (card, listId, e) => {
+    e.stopPropagation();
+    try {
+      const response = await apiPost(`/lists/${listId}/cards`, { 
+        title: `${card.title} (Copy)`,
+        description: card.description,
+        due_date: card.due_date,
+        labels: card.labels,
+        priority: card.priority
+      });
+
+      if (response.ok) {
+        const newCard = await response.json();
+        const newLists = board.lists.map(l => {
+          if (l.list_id === listId) {
+            return { ...l, cards: [...l.cards, newCard] };
+          }
+          return l;
+        });
+        setBoard({ ...board, lists: newLists });
+        toast.success('Card copied!');
+      }
+    } catch (error) {
+      console.error('Failed to copy card:', error);
+      toast.error('Failed to copy card');
+    }
+  };
+
+  // Move card to another list
+  const moveCard = async (cardId, sourceListId, targetListId, e) => {
+    if (e) e.stopPropagation();
+    if (!targetListId || sourceListId === targetListId) {
+      toast.error('Please select a different list');
+      return;
+    }
+    
+    try {
+      const response = await apiPost(`/cards/${cardId}/move`, { 
+        target_list_id: targetListId 
+      });
+
+      if (response.ok) {
+        // Find the card to move
+        const sourceList = board.lists.find(l => l.list_id === sourceListId);
+        const cardToMove = sourceList?.cards.find(c => c.card_id === cardId);
+        
+        if (cardToMove) {
+          const newLists = board.lists.map(l => {
+            if (l.list_id === sourceListId) {
+              return { ...l, cards: l.cards.filter(c => c.card_id !== cardId) };
+            }
+            if (l.list_id === targetListId) {
+              return { ...l, cards: [...l.cards, { ...cardToMove, list_id: targetListId }] };
+            }
+            return l;
+          });
+          setBoard({ ...board, lists: newLists });
+        }
+        
+        setMoveCardDialogOpen(false);
+        setCardToMove(null);
+        setTargetListId('');
+        toast.success('Card moved!');
+      }
+    } catch (error) {
+      console.error('Failed to move card:', error);
+      toast.error('Failed to move card');
+    }
+  };
+
+  // Delete card
+  const deleteCard = async (cardId, listId, e) => {
+    e.stopPropagation();
+    if (!confirm('Are you sure you want to delete this card?')) return;
+    
+    try {
+      const response = await apiDelete(`/cards/${cardId}`);
+
+      if (response.ok) {
+        const newLists = board.lists.map(l => {
+          if (l.list_id === listId) {
+            return { ...l, cards: l.cards.filter(c => c.card_id !== cardId) };
+          }
+          return l;
+        });
+        setBoard({ ...board, lists: newLists });
+        toast.success('Card deleted!');
+      }
+    } catch (error) {
+      console.error('Failed to delete card:', error);
+      toast.error('Failed to delete card');
+    }
+  };
+
+  // Open move card dialog
+  const openMoveCardDialog = (card, listId, e) => {
+    e.stopPropagation();
+    setCardToMove({ ...card, list_id: listId });
+    setTargetListId('');
+    setMoveCardDialogOpen(true);
+  };
+
   const handleLogout = async () => {
     await logout();
     navigate('/');
@@ -541,6 +654,9 @@ export default function BoardPage() {
                 </PopoverContent>
               </Popover>
 
+              {/* Notification Bell */}
+              <NotificationBell />
+
               <button
                 onClick={toggleTheme}
                 className="p-2 rounded-full hover:bg-white/10 transition-colors text-white"
@@ -679,11 +795,42 @@ export default function BoardPage() {
                                       {...provided.draggableProps}
                                       {...provided.dragHandleProps}
                                       onClick={() => setSelectedCard(card)}
-                                      className={`p-3 mb-2 bg-background rounded-lg border border-border hover:border-odapto-orange/50 cursor-pointer transition-all ${
+                                      className={`group/card p-3 mb-2 bg-background rounded-lg border border-border hover:border-odapto-orange/50 cursor-pointer transition-all relative ${
                                         snapshot.isDragging ? 'shadow-lg rotate-3' : 'shadow-sm'
                                       }`}
                                       data-testid={`card-${card.card_id}`}
                                     >
+                                      {/* Card Actions Menu */}
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <button 
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="absolute top-2 right-2 p-1 rounded bg-muted/80 text-muted-foreground opacity-0 group-hover/card:opacity-100 transition-opacity hover:bg-muted"
+                                            data-testid={`card-actions-${card.card_id}`}
+                                          >
+                                            <MoreVertical className="w-3.5 h-3.5" />
+                                          </button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                                          <DropdownMenuItem onClick={(e) => copyCard(card, list.list_id, e)} className="cursor-pointer">
+                                            <Copy className="w-4 h-4 mr-2" />
+                                            Copy Card
+                                          </DropdownMenuItem>
+                                          <DropdownMenuItem onClick={(e) => openMoveCardDialog(card, list.list_id, e)} className="cursor-pointer">
+                                            <MoveRight className="w-4 h-4 mr-2" />
+                                            Move Card
+                                          </DropdownMenuItem>
+                                          <DropdownMenuSeparator />
+                                          <DropdownMenuItem 
+                                            onClick={(e) => deleteCard(card.card_id, list.list_id, e)} 
+                                            className="text-destructive cursor-pointer"
+                                          >
+                                            <Trash2 className="w-4 h-4 mr-2" />
+                                            Delete Card
+                                          </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
+                                      
                                       {/* Labels */}
                                       {/* Labels */}
                                       {card.labels?.length > 0 && (
@@ -936,6 +1083,48 @@ export default function BoardPage() {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Move Card Dialog */}
+      <Dialog open={moveCardDialogOpen} onOpenChange={setMoveCardDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Move Card</DialogTitle>
+            <DialogDescription>
+              Select a list to move "{cardToMove?.title}" to.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div className="space-y-2">
+              <Label>Destination List</Label>
+              <Select value={targetListId} onValueChange={setTargetListId}>
+                <SelectTrigger data-testid="move-card-list-select">
+                  <SelectValue placeholder="Select a list" />
+                </SelectTrigger>
+                <SelectContent>
+                  {board?.lists?.filter(l => l.list_id !== cardToMove?.list_id).map(list => (
+                    <SelectItem key={list.list_id} value={list.list_id}>
+                      {list.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex justify-end gap-3">
+              <Button type="button" variant="outline" onClick={() => setMoveCardDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={(e) => moveCard(cardToMove?.card_id, cardToMove?.list_id, targetListId, e)} 
+                className="bg-odapto-orange hover:bg-odapto-orange-hover text-white"
+                disabled={!targetListId}
+                data-testid="move-card-submit-btn"
+              >
+                Move Card
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
