@@ -364,11 +364,9 @@ export default function TemplatesPage() {
                     )}
                   </div>
                 </DialogTitle>
-                {previewTemplate.template_description && (
-                  <DialogDescription className="mt-2">
-                    {previewTemplate.template_description}
-                  </DialogDescription>
-                )}
+                <DialogDescription className="mt-2">
+                  {previewTemplate.template_description || 'Preview the board structure before using this template.'}
+                </DialogDescription>
               </DialogHeader>
               
               <div className="mt-4">

@@ -21,7 +21,13 @@ Odapto is a production-grade Kanban-based work management SaaS similar to Trello
 - [x] Gmail SMTP Email Service
 - [x] Secure invitation tokens with 7-day expiration
 - [x] Notification system
-- [x] Template categories and gallery
+- [x] **Template System** (NEW)
+  - [x] Template categories CRUD (Admin only)
+  - [x] Publish board as template (Privileged/Admin users)
+  - [x] Get templates with search/filter
+  - [x] Template preview with lists/cards
+  - [x] Use template to create board
+  - [x] Template stats (lists, cards, usage count)
 - [x] Admin analytics endpoint
 - [x] File upload for card attachments and board backgrounds
 - [x] Teams CRUD API - Create/update/delete teams, manage members
@@ -29,16 +35,15 @@ Odapto is a production-grade Kanban-based work management SaaS similar to Trello
 - [x] Board Categorization - personal/team/invited categories
 - [x] Inviter-only member removal
 - [x] Board stats endpoint - list/card/attachment counts
-- [x] **Real-time WebSocket Sync** (NEW)
+- [x] Real-time WebSocket Sync
   - [x] WebSocket endpoint at `/ws/board/{board_id}`
   - [x] Card create/update/delete/move broadcasts
   - [x] List create/update/delete broadcasts
   - [x] Comment and checklist broadcasts
   - [x] Member assignment broadcasts
-- [x] **Card Activity Logging** (NEW)
+- [x] Card Activity Logging
   - [x] `log_card_activity()` helper function
   - [x] GET `/api/cards/{card_id}/activities` endpoint
-  - [x] Activities logged: created, updated_title, updated_description, set_due_date, removed_due_date, set_priority, added_label, removed_label, added_member, removed_member, added_checklist_item, completed_checklist_item, added_comment, moved, deleted
 
 ### Frontend (React)
 - [x] New Odapto Logo
@@ -59,20 +64,22 @@ Odapto is a production-grade Kanban-based work management SaaS similar to Trello
 - [x] Enhanced card preview with due date colors, priority badges, labels
 - [x] Enhanced card detail modal
 - [x] Invitation Accept Page
-- [x] Template gallery page
-- [x] Admin panel
+- [x] **Template System** (NEW)
+  - [x] Admin Panel > Categories tab for template category management
+  - [x] "Publish" button on BoardPage for privileged/admin users
+  - [x] Publish dialog with template name, description, category
+  - [x] Template Gallery page (`/templates`)
+  - [x] Template cards with stats (lists, cards count)
+  - [x] Template preview modal with lists/cards structure
+  - [x] "Use This Template" button with workspace selection
+  - [x] Category filter on Templates page
+  - [x] Search functionality
+- [x] Admin panel with user management
 - [x] Enhanced Profile dropdown
 - [x] Profile page
 - [x] Dark/Light theme support
-- [x] **Real-time WebSocket Sync** (NEW)
-  - [x] WebSocket connection on board page load
-  - [x] Auto-reconnect on disconnect (3 second delay)
-  - [x] Handlers for: card_created, card_updated, card_deleted, card_moved, list_created, list_updated, list_deleted, member_joined, new_comment, checklist_item_added, checklist_item_toggled
-- [x] **Card Activity History** (NEW)
-  - [x] Collapsible Activity section in card modal
-  - [x] Activity icons based on action type
-  - [x] Human-readable activity descriptions
-  - [x] Relative timestamps (e.g., "2 minutes ago")
+- [x] Real-time WebSocket Sync
+- [x] Card Activity History
 
 ### Email System
 - [x] Gmail SMTP integration with STARTTLS
@@ -88,6 +95,11 @@ All P0 features completed.
 ### P1 (COMPLETED)
 - [x] Real-time WebSocket sync
 - [x] Card activity/history log
+- [x] **Template System** (NEW - COMPLETED)
+  - [x] Admin template category management
+  - [x] Publish board as template
+  - [x] Template Gallery with search/filter
+  - [x] Template preview modal
 
 ### P2 (Medium Priority - Next)
 1. **Profile photo editing** - Upload, crop, 2MB limit
@@ -110,7 +122,7 @@ All P0 features completed.
 
 ### Stack
 - **Frontend**: React 18, Tailwind CSS, Shadcn UI, @hello-pangea/dnd
-- **Backend**: FastAPI, Motor (async MongoDB), bcrypt, httpx
+- **Backend**: FastAPI (Python), Motor (async MongoDB), bcrypt, httpx
 - **Database**: MongoDB
 - **Auth**: Session tokens + Emergent Google OAuth
 - **Email**: Gmail SMTP (smtp.gmail.com:587 with STARTTLS)
@@ -125,12 +137,16 @@ All endpoints prefixed with `/api`:
 - `/api/teams/{id}/*` - Team operations
 - `/api/boards/*` - Board operations
 - `/api/boards/{id}/team` - Assign board to team
+- `/api/boards/{id}/publish-template` - Publish as template (privileged)
 - `/api/lists/*` - List operations
 - `/api/cards/*` - Card operations
 - `/api/cards/{id}/move` - Move card to another list
 - `/api/cards/{id}/activities` - Get card activity history
 - `/api/invitations/{token}` - Get/accept invitation
 - `/api/templates` - Template gallery
+- `/api/templates/{id}` - Template details with lists/cards
+- `/api/templates/{id}/use` - Create board from template
+- `/api/template-categories` - Template categories (admin)
 - `/api/admin/*` - Admin operations
 - `/ws/board/{board_id}` - WebSocket for real-time updates
 
@@ -138,18 +154,20 @@ All endpoints prefixed with `/api`:
 - **users**: user_id, email, password_hash, name, role, picture
 - **workspaces**: workspace_id, name, description, owner_id, members
 - **teams**: team_id, workspace_id, name, owner_id, members
-- **boards**: board_id, workspace_id, team_id, name, background, members, is_template
+- **boards**: board_id, workspace_id, team_id, name, background, members, is_template, template_name, template_description, template_category_id, created_from_template
 - **lists**: list_id, board_id, name, position
 - **cards**: card_id, list_id, board_id, title, description, due_date, labels, priority, assigned_members, attachments, checklist, comments
 - **card_activities**: activity_id, card_id, board_id, user_id, user_name, action, details, created_at
+- **template_categories**: category_id, name, description
 - **invitation_tokens**: token, email, invitation_type, target_id, used, expires_at
 - **email_logs**: log_id, to_email, subject, success, error
 
 ## Test Credentials
 - **Admin**: odapto.admin@emergent.com / SecurePassword123!
-- **Test Board**: board_8b24ee8c579c
 - **Test Workspace**: ws_3a39c12c673e
 - **Teams**: Marketing Team, Dev Team
+- **Template Categories**: Project Management, Software Development
+- **Templates**: Sprint Planning Template, Dev Team Kanban Template
 
 ## Next Tasks
 1. Add profile photo upload with cropping (2MB limit)
