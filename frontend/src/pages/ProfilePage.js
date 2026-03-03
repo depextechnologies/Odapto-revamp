@@ -12,6 +12,13 @@ import { apiPost } from '../utils/api';
 import { Moon, Sun, ArrowLeft, Mail, Shield, Calendar, LogOut, Camera, Upload } from 'lucide-react';
 
 const LOGO_URL = "/odapto-logo-new.png";
+const API_BASE = process.env.REACT_APP_BACKEND_URL;
+
+const getImageUrl = (url) => {
+  if (!url) return null;
+  if (url.startsWith('http')) return url;
+  return `${API_BASE}${url}`;
+};
 
 export default function ProfilePage() {
   const { user, logout, checkAuth } = useAuth();
@@ -158,7 +165,7 @@ export default function ProfilePage() {
             <div className="flex items-center gap-6">
               <div className="relative group">
                 <Avatar className="h-24 w-24 border-4 border-background shadow-lg">
-                  <AvatarImage src={user?.picture} alt={user?.name} />
+                  <AvatarImage src={getImageUrl(user?.picture)} alt={user?.name} />
                   <AvatarFallback className="bg-odapto-orange text-white text-2xl">
                     {getInitials(user?.name)}
                   </AvatarFallback>

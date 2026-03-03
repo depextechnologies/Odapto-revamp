@@ -2792,6 +2792,14 @@ async def websocket_endpoint(websocket: WebSocket, board_id: str):
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
 
+# Serve uploaded files
+@api_router.get("/uploads/{folder}/{filename}")
+async def serve_upload(folder: str, filename: str):
+    file_path = UPLOAD_DIR / folder / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(file_path)
+
 # Include the router in the main app
 app.include_router(api_router)
 
