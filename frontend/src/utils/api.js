@@ -1,5 +1,5 @@
 // API utility for making authenticated requests
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+import { API } from '../config';
 
 const getStoredToken = () => localStorage.getItem('odapto_session_token');
 

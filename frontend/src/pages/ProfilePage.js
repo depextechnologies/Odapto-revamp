@@ -12,14 +12,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { toast } from 'sonner';
 import { apiPost } from '../utils/api';
 import { Moon, Sun, ArrowLeft, Mail, Shield, Calendar, LogOut, Camera, Upload, Lock, Eye, EyeOff } from 'lucide-react';
+import { API_BASE_URL } from '../config';
 
 const LOGO_URL = "/odapto-logo-new.png";
-const API_BASE = process.env.REACT_APP_BACKEND_URL;
 
 const getImageUrl = (url) => {
   if (!url) return null;
   if (url.startsWith('http')) return url;
-  return `${API_BASE}${url}`;
+  return `${API_BASE_URL}${url}`;
 };
 
 export default function ProfilePage() {

@@ -16,6 +16,7 @@ import { apiGet, apiPost, apiPatch, apiDelete, apiCall } from '../utils/api';
 import CardDetailModal from '../components/CardDetailModal';
 import NotificationBell from '../components/NotificationBell';
 import { isToday, isPast, isFuture } from 'date-fns';
+import { API_BASE_URL, getWebSocketUrl } from '../config';
 import { 
   Plus, 
   Moon, 
@@ -42,7 +43,7 @@ import {
 } from 'lucide-react';
 
 const LOGO_URL = "/odapto-logo-new.png";
-const API_BASE = process.env.REACT_APP_BACKEND_URL;
+const API_BASE = API_BASE_URL;
 
 const BOARD_COLORS = [
   '#3A8B84', '#E67E4C', '#6366F1', '#EC4899', '#14B8A6', '#F59E0B', '#8B5CF6', '#06B6D4',
@@ -156,11 +157,8 @@ export default function BoardPage() {
     if (!boardId || !user) return;
     
     const connectWebSocket = () => {
-      // Get WebSocket URL from REACT_APP_BACKEND_URL
-      const backendUrl = process.env.REACT_APP_BACKEND_URL || '';
-      const wsProtocol = backendUrl.startsWith('https') ? 'wss' : 'ws';
-      const wsHost = backendUrl.replace(/^https?:\/\//, '');
-      const wsUrl = `${wsProtocol}://${wsHost}/ws/board/${boardId}`;
+      // Get WebSocket URL using central config
+      const wsUrl = getWebSocketUrl(`/ws/board/${boardId}`);
       
       console.log('Connecting to WebSocket:', wsUrl);
       

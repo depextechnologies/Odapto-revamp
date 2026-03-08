@@ -6,8 +6,8 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
 import { Moon, Sun, ArrowLeft, Mail, Lock, Eye, EyeOff, CheckCircle } from 'lucide-react';
+import { API } from '../config';
 
-const API = process.env.REACT_APP_BACKEND_URL;
 const LOGO_URL = "/odapto-logo-new.png";
 
 export default function ResetPasswordPage() {

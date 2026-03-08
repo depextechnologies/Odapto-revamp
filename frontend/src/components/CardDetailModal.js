@@ -30,8 +30,9 @@ import {
   Move,
   AlertCircle
 } from 'lucide-react';
+import { API_BASE_URL } from '../config';
 
-const API_BASE = process.env.REACT_APP_BACKEND_URL;
+const API_BASE = API_BASE_URL;
 
 const LABEL_COLORS = [
   { color: '#EF4444', name: 'Red' },

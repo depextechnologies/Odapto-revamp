@@ -26,7 +26,8 @@ import {
   X
 } from 'lucide-react';
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+import { API } from '../config';
+
 const LOGO_URL = "/odapto-logo-new.png";
 
 export default function TemplatesPage() {

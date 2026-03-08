@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { toast } from 'sonner';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../utils/api';
+import { API } from '../config';
 import { 
   Moon, 
   Sun, 
@@ -51,7 +52,7 @@ export default function AdminPage() {
     try {
       const [usersRes, categoriesRes, analyticsRes] = await Promise.all([
         apiGet('/admin/users'),
-        fetch(`${process.env.REACT_APP_BACKEND_URL}/api/template-categories`),
+        fetch(`${API}/template-categories`),
         apiGet('/admin/analytics')
       ]);
 
